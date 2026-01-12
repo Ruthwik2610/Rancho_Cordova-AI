@@ -1,16 +1,17 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import dynamic from 'next/dynamic'; // Import dynamic loader
 import { 
   MessageSquare, Zap, Send, LogOut, User, Lock, 
   Loader2, Building2 
 } from 'lucide-react';
-import { 
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, 
-  Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell 
-} from 'recharts';
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
+// Dynamically import the Chart component with SSR disabled
+const ChartRenderer = dynamic(() => import('./components/Charts'), { 
+  ssr: false,
+  loading: () => <div className="h-64 bg-gray-100 animate-pulse rounded-xl" />
+});
 
 // --- LOGIN COMPONENT ---
 const Login = ({ onLogin }) => {
@@ -122,33 +123,6 @@ const ChatInterface = ({ agent, onBack }) => {
     }
   };
 
-  const renderChart = (chart, key) => {
-    if (!chart || !chart.data) return null;
-    return (
-      <div key={key} className="my-4 bg-white p-4 rounded-xl shadow-sm border h-64 w-full">
-        <h4 className="text-xs font-bold text-gray-500 uppercase mb-2">{chart.title}</h4>
-        <ResponsiveContainer width="100%" height="90%">
-          {chart.type === 'pie' ? (
-            <PieChart>
-              <Pie data={chart.data} dataKey="value" cx="50%" cy="50%" outerRadius={60} label>
-                {chart.data.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-              </Pie>
-              <Legend />
-            </PieChart>
-          ) : (
-            <BarChart data={chart.data}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" fontSize={12} />
-              <YAxis fontSize={12} />
-              <Tooltip />
-              <Bar dataKey="value" fill={agent === 'energy' ? '#00C49F' : '#0088FE'} />
-            </BarChart>
-          )}
-        </ResponsiveContainer>
-      </div>
-    );
-  };
-
   const theme = agent === 'energy' ? 'bg-teal-700' : 'bg-blue-700';
 
   return (
@@ -162,7 +136,8 @@ const ChatInterface = ({ agent, onBack }) => {
           <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[85%] p-4 rounded-2xl shadow-sm ${m.role === 'user' ? 'bg-blue-600 text-white' : 'bg-white text-gray-800'}`}>
               <p className="whitespace-pre-wrap">{m.content}</p>
-              {renderChart(m.chart, `c-${i}`)}
+              {/* Using the safe dynamic component here */}
+              {m.chart && <ChartRenderer chart={m.chart} />}
             </div>
           </div>
         ))}
