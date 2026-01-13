@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Pinecone } from '@pinecone-database/pinecone';
 import Groq from 'groq-sdk';
 
-export const maxDuration = 10; // Match Vercel Free Limit
+export const maxDuration = 10; 
 
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY;
 const PINECONE_INDEX_NAME = process.env.PINECONE_INDEX_NAME || 'rancho-cordova';
@@ -18,7 +18,8 @@ export async function POST(req: NextRequest) {
     const { message, agentType = 'customer' } = await req.json();
 
     // 1. GENERATE EMBEDDING
-    const modelUrl = "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2";
+    // VERIFIED URL: Using the standard models endpoint
+    const modelUrl = "https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2";
     
     let queryVector: number[] = [];
     
@@ -31,11 +32,10 @@ export async function POST(req: NextRequest) {
         },
         body: JSON.stringify({
           inputs: message,
-          options: { wait_for_model: false, use_cache: true } // Don't wait on server
+          options: { wait_for_model: false, use_cache: true } 
         }),
       });
 
-      // IF 503: MODEL IS LOADING
       if (response.status === 503) {
         return NextResponse.json(
           { error: 'Model loading', estimated_time: 20 },
@@ -44,12 +44,13 @@ export async function POST(req: NextRequest) {
       }
 
       if (!response.ok) {
-        throw new Error(`HF API error: ${response.status}`);
+        const errText = await response.text();
+        throw new Error(`HF API error: ${response.status} - ${errText}`);
       }
 
       const result = await response.json();
       
-      // Handle array format
+      // Handle array format (some endpoints return nested arrays)
       if (Array.isArray(result) && result.length > 0) {
          queryVector = Array.isArray(result[0]) ? result[0] : result;
       } else {
