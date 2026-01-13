@@ -2,11 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Pinecone } from '@pinecone-database/pinecone';
 import Groq from 'groq-sdk';
 
-// Force Node.js runtime (Edge runtime can have issues with some libraries)
+// Force Node.js runtime
 export const runtime = 'nodejs';
-// Prevent Vercel from caching the response
 export const dynamic = 'force-dynamic';
-// Limit execution time to 10s (Matches Vercel Free Tier limit)
 export const maxDuration = 10; 
 
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY;
@@ -16,7 +14,6 @@ const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
 
 export async function POST(req: NextRequest) {
   try {
-    // 1. VALIDATE CONFIGURATION
     if (!PINECONE_API_KEY || !GROQ_API_KEY || !HUGGINGFACE_API_KEY) {
       return NextResponse.json({ error: 'Server configuration error: Missing API keys' }, { status: 500 });
     }
@@ -27,9 +24,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
-    // 2. GENERATE EMBEDDING
-    // VERIFIED URL: Uses the standard model endpoint (the "pipeline" URL is deprecated/410)
-    const modelUrl = "https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2";
+    // 1. GENERATE EMBEDDING
+    // FIX: Updated to the new 'router' endpoint required by the 410 error
+    const modelUrl = "https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2";
     
     let queryVector: number[] = [];
     
@@ -42,12 +39,11 @@ export async function POST(req: NextRequest) {
         },
         body: JSON.stringify({
           inputs: message,
-          options: { wait_for_model: false, use_cache: true } // "false" prevents 10s timeout
+          options: { wait_for_model: false, use_cache: true }
         }),
       });
 
-      // HANDLE COLD START (503)
-      // If the model is sleeping, tell the frontend to wait and retry
+      // Handle "Model Loading" (503)
       if (response.status === 503) {
         return NextResponse.json(
           { error: 'Model loading', estimated_time: 20 },
@@ -57,13 +53,14 @@ export async function POST(req: NextRequest) {
 
       if (!response.ok) {
         const errorText = await response.text();
+        // Log the specific error to help debug if the URL changes again
+        console.error(`HF Router Error (${response.status}):`, errorText);
         throw new Error(`Hugging Face API Error: ${response.status} - ${errorText}`);
       }
 
       const result = await response.json();
       
-      // PARSE EMBEDDING RESULT
-      // The API sometimes returns [0.1, 0.2...] and sometimes [[0.1, 0.2...]]
+      // Parse Embedding
       if (Array.isArray(result)) {
          queryVector = (Array.isArray(result[0]) ? result[0] : result) as number[];
       } else {
@@ -75,7 +72,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // 3. QUERY PINECONE
+    // 2. QUERY PINECONE
     const pc = new Pinecone({ apiKey: PINECONE_API_KEY });
     const index = pc.index(PINECONE_INDEX_NAME);
 
@@ -90,12 +87,12 @@ export async function POST(req: NextRequest) {
       .filter(match => (match.score || 0) > 0.4)
       .map(doc => doc.metadata?.text).join('\n\n');
 
-    // 4. GENERATE ANSWER (GROQ)
+    // 3. GENERATE ANSWER (GROQ)
     const groq = new Groq({ apiKey: GROQ_API_KEY });
     const isDataQuery = /\b(graph|chart|show|visualize|plot|display|data|statistics|trend|compare)\b/i.test(message);
 
     const systemPrompts = {
-      energy: `You are an energy efficiency advisor for Rancho Cordova. Context: ${context || 'No specific context found.'}. ${isDataQuery ? 'Return JSON for charts in this format: { "type": "chart", "chartType": "line"|"bar"|"pie", "title": "...", "data": { ... }, "explanation": "..." }. Otherwise, plain text.' : ''}`,
+      energy: `You are an energy efficiency advisor for Rancho Cordova. Context: ${context || 'No specific context found.'}. ${isDataQuery ? 'Return JSON for charts.' : ''}`,
       customer: `You are a city services assistant for Rancho Cordova. Context: ${context || 'No specific context found.'}. Be helpful and concise.`
     };
 
@@ -111,7 +108,7 @@ export async function POST(req: NextRequest) {
 
     const responseContent = completion.choices[0]?.message?.content || 'I could not generate a response.';
     
-    // 5. PARSE CHART JSON (If applicable)
+    // Parse Chart JSON
     let chartData = null;
     if (isDataQuery && responseContent.includes('"type": "chart"')) {
       try {
