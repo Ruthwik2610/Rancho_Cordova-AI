@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Pinecone } from '@pinecone-database/pinecone';
 import Groq from 'groq-sdk';
 
+// Force Node.js runtime (Edge runtime can have issues with some libraries)
+export const runtime = 'nodejs';
+// Prevent Vercel from caching the response
+export const dynamic = 'force-dynamic';
+// Limit execution time to 10s (Matches Vercel Free Tier limit)
 export const maxDuration = 10; 
 
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY;
@@ -11,14 +16,19 @@ const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
 
 export async function POST(req: NextRequest) {
   try {
+    // 1. VALIDATE CONFIGURATION
     if (!PINECONE_API_KEY || !GROQ_API_KEY || !HUGGINGFACE_API_KEY) {
-      return NextResponse.json({ error: 'Missing API keys' }, { status: 500 });
+      return NextResponse.json({ error: 'Server configuration error: Missing API keys' }, { status: 500 });
     }
 
     const { message, agentType = 'customer' } = await req.json();
 
-    // 1. GENERATE EMBEDDING
-    // VERIFIED URL: Using the standard models endpoint
+    if (!message || typeof message !== 'string') {
+      return NextResponse.json({ error: 'Message is required' }, { status: 400 });
+    }
+
+    // 2. GENERATE EMBEDDING
+    // VERIFIED URL: Uses the standard model endpoint (the "pipeline" URL is deprecated/410)
     const modelUrl = "https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2";
     
     let queryVector: number[] = [];
@@ -32,10 +42,12 @@ export async function POST(req: NextRequest) {
         },
         body: JSON.stringify({
           inputs: message,
-          options: { wait_for_model: false, use_cache: true } 
+          options: { wait_for_model: false, use_cache: true } // "false" prevents 10s timeout
         }),
       });
 
+      // HANDLE COLD START (503)
+      // If the model is sleeping, tell the frontend to wait and retry
       if (response.status === 503) {
         return NextResponse.json(
           { error: 'Model loading', estimated_time: 20 },
@@ -44,30 +56,31 @@ export async function POST(req: NextRequest) {
       }
 
       if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`HF API error: ${response.status} - ${errText}`);
+        const errorText = await response.text();
+        throw new Error(`Hugging Face API Error: ${response.status} - ${errorText}`);
       }
 
       const result = await response.json();
       
-      // Handle array format (some endpoints return nested arrays)
-      if (Array.isArray(result) && result.length > 0) {
-         queryVector = Array.isArray(result[0]) ? result[0] : result;
+      // PARSE EMBEDDING RESULT
+      // The API sometimes returns [0.1, 0.2...] and sometimes [[0.1, 0.2...]]
+      if (Array.isArray(result)) {
+         queryVector = (Array.isArray(result[0]) ? result[0] : result) as number[];
       } else {
-        throw new Error("Invalid embedding format");
+        throw new Error("Invalid embedding format received from Hugging Face");
       }
 
     } catch (error: any) {
-      console.error('Embedding error:', error);
+      console.error('Embedding generation failed:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // 2. QUERY PINECONE
+    // 3. QUERY PINECONE
     const pc = new Pinecone({ apiKey: PINECONE_API_KEY });
     const index = pc.index(PINECONE_INDEX_NAME);
 
     const queryResponse = await index.query({
-      vector: queryVector as number[],
+      vector: queryVector,
       topK: 5,
       includeMetadata: true,
       filter: { agent: { $eq: agentType } }
@@ -77,13 +90,13 @@ export async function POST(req: NextRequest) {
       .filter(match => (match.score || 0) > 0.4)
       .map(doc => doc.metadata?.text).join('\n\n');
 
-    // 3. GENERATE RESPONSE
+    // 4. GENERATE ANSWER (GROQ)
     const groq = new Groq({ apiKey: GROQ_API_KEY });
     const isDataQuery = /\b(graph|chart|show|visualize|plot|display|data|statistics|trend|compare)\b/i.test(message);
 
     const systemPrompts = {
-      energy: `You are an energy advisor. Context: ${context || 'None'}. ${isDataQuery ? 'Return JSON for charts.' : ''}`,
-      customer: `You are a city assistant. Context: ${context || 'None'}.`
+      energy: `You are an energy efficiency advisor for Rancho Cordova. Context: ${context || 'No specific context found.'}. ${isDataQuery ? 'Return JSON for charts in this format: { "type": "chart", "chartType": "line"|"bar"|"pie", "title": "...", "data": { ... }, "explanation": "..." }. Otherwise, plain text.' : ''}`,
+      customer: `You are a city services assistant for Rancho Cordova. Context: ${context || 'No specific context found.'}. Be helpful and concise.`
     };
 
     const completion = await groq.chat.completions.create({
@@ -92,17 +105,21 @@ export async function POST(req: NextRequest) {
         { role: 'user', content: message }
       ],
       model: 'llama-3.1-70b-versatile',
+      temperature: 0.7,
+      max_tokens: 1024,
     });
 
-    const responseContent = completion.choices[0]?.message?.content || 'No response.';
+    const responseContent = completion.choices[0]?.message?.content || 'I could not generate a response.';
     
-    // Parse Chart JSON
+    // 5. PARSE CHART JSON (If applicable)
     let chartData = null;
     if (isDataQuery && responseContent.includes('"type": "chart"')) {
       try {
         const jsonMatch = responseContent.match(/\{[\s\S]*"type":\s*"chart"[\s\S]*\}/);
         if (jsonMatch) chartData = JSON.parse(jsonMatch[0]);
-      } catch (e) {}
+      } catch (e) {
+        console.warn('Failed to parse chart JSON');
+      }
     }
 
     return NextResponse.json({
@@ -112,9 +129,7 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('API Route Error:', error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
-
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
