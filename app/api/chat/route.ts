@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Pinecone } from '@pinecone-database/pinecone';
 import Groq from 'groq-sdk';
-import { InferenceClient } from "@huggingface/inference";
+import { HfInference } from "@huggingface/inference";
 
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY;
 const PINECONE_INDEX_NAME = process.env.PINECONE_INDEX_NAME || 'rancho-cordova';
@@ -9,7 +9,7 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
 
 // Initialize clients
-const hf = new InferenceClient(HUGGINGFACE_API_KEY);
+const hf = new HfInference(HUGGINGFACE_API_KEY);
 
 export async function POST(req: NextRequest) {
   try {
