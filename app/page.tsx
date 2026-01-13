@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, Zap, User, Bot, Sparkles, AlertCircle, CheckCircle } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Send, Zap, User, Bot, Sparkles, AlertCircle, CheckCircle, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Chart as ChartJS,
@@ -18,18 +19,7 @@ import {
 } from 'chart.js';
 import { Line, Bar, Pie, Doughnut } from 'react-chartjs-2';
 
-// Register Chart.js components
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  ArcElement,
-  Title,
-  Tooltip,
-  Legend
-);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip, Legend);
 
 interface ChartDataset {
   label: string;
@@ -63,6 +53,7 @@ interface Message {
 type AgentType = 'customer' | 'energy';
 
 export default function Home() {
+  const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -70,6 +61,16 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const isAuthenticated = localStorage.getItem('isAuthenticated');
+    if (!isAuthenticated) router.push('/login');
+  }, [router]);
+
+  const handleLogout = () => {
+    localStorage.removeItem('isAuthenticated');
+    router.push('/login');
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -80,7 +81,6 @@ export default function Home() {
   }, [messages]);
 
   useEffect(() => {
-    // Welcome message
     setMessages([{
       id: '0',
       role: 'assistant',
@@ -105,22 +105,31 @@ export default function Home() {
     setLoading(true);
     setError(null);
 
-    try {
+    // RETRY LOGIC
+    const fetchWithRetry = async (attempt = 1): Promise<any> => {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          message: userMessage.content, 
-          agentType 
-        })
+        body: JSON.stringify({ message: userMessage.content, agentType })
       });
 
-      const data = await res.json();
+      if (res.status === 503) {
+        if (attempt > 10) throw new Error("Server is busy. Please try again later.");
+        setError(`Waking up AI Brain... (Attempt ${attempt}/5)`);
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        return fetchWithRetry(attempt + 1);
+      }
 
       if (!res.ok) {
+        const data = await res.json();
         throw new Error(data.error || `Server error: ${res.status}`);
       }
 
+      return res.json();
+    };
+
+    try {
+      const data = await fetchWithRetry();
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -128,17 +137,16 @@ export default function Home() {
         chartData: data.chartData,
         sources: data.sources
       };
-
       setMessages(prev => [...prev, assistantMessage]);
+      setError(null);
     } catch (error: unknown) {
       console.error('Error:', error);
       const errorMessage = error instanceof Error ? error.message : 'An error occurred';
       setError(errorMessage);
-      
       const errorMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: `I apologize, but I encountered an error. Please try again or contact support if the issue persists.`
+        content: `I apologize, but I encountered an error: ${errorMessage}`
       };
       setMessages(prev => [...prev, errorMsg]);
     } finally {
@@ -163,14 +171,7 @@ export default function Home() {
         title: { display: true, text: chartData.title },
       },
     };
-
-    const ChartComponents = {
-      line: Line,
-      bar: Bar,
-      pie: Pie,
-      doughnut: Doughnut,
-    };
-
+    const ChartComponents = { line: Line, bar: Bar, pie: Pie, doughnut: Doughnut };
     const ChartComponent = ChartComponents[chartData.chartType];
 
     return (
@@ -184,7 +185,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
-      {/* Header */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-lg border-b border-gray-200 shadow-sm">
         <div className="max-w-5xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
@@ -197,123 +197,52 @@ export default function Home() {
                 <p className="text-xs text-gray-500">Your City Assistant</p>
               </div>
             </div>
-
-            {/* Agent Selector */}
-            <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
-              <button
-                onClick={() => setAgentType('customer')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                  agentType === 'customer'
-                    ? 'bg-white text-blue-600 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                <User className="w-4 h-4 inline mr-1" />
-                City Services
-              </button>
-              <button
-                onClick={() => setAgentType('energy')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                  agentType === 'energy'
-                    ? 'bg-white text-green-600 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                <Zap className="w-4 h-4 inline mr-1" />
-                Energy Advisor
+            <div className="flex items-center gap-3">
+              <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
+                <button onClick={() => setAgentType('customer')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${agentType === 'customer' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>
+                  <User className="w-4 h-4 inline mr-1" /> Services
+                </button>
+                <button onClick={() => setAgentType('energy')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${agentType === 'energy' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>
+                  <Zap className="w-4 h-4 inline mr-1" /> Energy
+                </button>
+              </div>
+              <div className="h-8 w-px bg-gray-200 mx-1"></div>
+              <button onClick={handleLogout} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Sign Out">
+                <LogOut className="w-5 h-5" />
               </button>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Error Banner */}
       <AnimatePresence>
         {error && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="max-w-5xl mx-auto px-4 pt-4"
-          >
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
-              <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-              <p className="text-sm text-red-700">{error}</p>
-              <button
-                onClick={() => setError(null)}
-                className="ml-auto text-red-500 hover:text-red-700 text-xl"
-              >
-                ×
-              </button>
+          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="max-w-5xl mx-auto px-4 pt-4">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-2">
+              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-sm text-blue-700">{error}</p>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Chat Messages */}
       <main className="max-w-5xl mx-auto px-4 py-6 pb-32">
         <div className="space-y-6">
           <AnimatePresence initial={false}>
             {messages.map((msg) => (
-              <motion.div
-                key={msg.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.3 }}
-                className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
-              >
-                {/* Avatar */}
-                <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
-                  msg.role === 'user'
-                    ? 'bg-blue-600'
-                    : agentType === 'energy'
-                    ? 'bg-gradient-to-br from-green-600 to-emerald-600'
-                    : 'bg-gradient-to-br from-purple-600 to-blue-600'
-                }`}>
-                  {msg.role === 'user' ? (
-                    <User className="w-5 h-5 text-white" />
-                  ) : agentType === 'energy' ? (
-                    <Zap className="w-5 h-5 text-white" />
-                  ) : (
-                    <Bot className="w-5 h-5 text-white" />
-                  )}
+              <motion.div key={msg.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${msg.role === 'user' ? 'bg-blue-600' : agentType === 'energy' ? 'bg-green-600' : 'bg-purple-600'}`}>
+                  {msg.role === 'user' ? <User className="w-5 h-5 text-white" /> : <Bot className="w-5 h-5 text-white" />}
                 </div>
-
-                {/* Message Content */}
                 <div className={`flex-1 max-w-3xl ${msg.role === 'user' ? 'text-right' : ''}`}>
-                  <div
-                    className={`inline-block px-6 py-4 rounded-2xl shadow-sm ${
-                      msg.role === 'user'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-white text-gray-900 border border-gray-200'
-                    }`}
-                  >
+                  <div className={`inline-block px-6 py-4 rounded-2xl shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-white text-gray-900 border border-gray-200'}`}>
                     <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                   </div>
-
-                  {/* Chart Visualization */}
-                  {msg.chartData && msg.role === 'assistant' && (
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: 0.2 }}
-                    >
-                      {renderChart(msg.chartData)}
-                    </motion.div>
-                  )}
-
-                  {/* Sources */}
-                  {msg.sources && msg.sources.length > 0 && (
+                  {msg.chartData && renderChart(msg.chartData)}
+                  {msg.sources && (
                     <div className="mt-2 flex flex-wrap gap-2">
-                      {msg.sources.map((source, idx) => (
-                        <span
-                          key={idx}
-                          className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full"
-                        >
-                          <CheckCircle className="w-3 h-3" />
-                          {source.source} ({source.score}%)
-                        </span>
+                      {msg.sources.map((s, i) => (
+                        <span key={i} className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full"><CheckCircle className="w-3 h-3" />{s.source}</span>
                       ))}
                     </div>
                   )}
@@ -321,72 +250,19 @@ export default function Home() {
               </motion.div>
             ))}
           </AnimatePresence>
-
-          {/* Loading Indicator */}
-          {loading && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex gap-4"
-            >
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                agentType === 'energy'
-                  ? 'bg-gradient-to-br from-green-600 to-emerald-600'
-                  : 'bg-gradient-to-br from-purple-600 to-blue-600'
-              }`}>
-                {agentType === 'energy' ? (
-                  <Zap className="w-5 h-5 text-white" />
-                ) : (
-                  <Bot className="w-5 h-5 text-white" />
-                )}
-              </div>
-              <div className="flex-1">
-                <div className="inline-block px-6 py-4 rounded-2xl bg-white border border-gray-200 shadow-sm">
-                  <div className="flex gap-2">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          )}
-
           <div ref={messagesEndRef} />
         </div>
       </main>
 
-      {/* Input Area */}
-      <div className="fixed bottom-0 left-0 right-0 bg-gradient-to-t from-white via-white to-transparent pt-8 pb-6">
+      <div className="fixed bottom-0 left-0 right-0 bg-white pt-4 pb-6 border-t border-gray-200">
         <div className="max-w-5xl mx-auto px-4">
           <form onSubmit={sendMessage} className="relative">
-            <div className="relative bg-white rounded-2xl shadow-lg border border-gray-200 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent transition-all">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder={
-                  agentType === 'energy'
-                    ? 'Ask about energy savings, SMUD programs, or request data visualizations...'
-                    : 'Ask about city services, permits, utilities, or who to contact...'
-                }
-                rows={1}
-                disabled={loading}
-                className="w-full px-6 py-4 pr-14 bg-transparent border-none resize-none focus:outline-none text-gray-900 placeholder-gray-400 max-h-32"
-                style={{ minHeight: '56px' }}
-              />
-              <button
-                type="submit"
-                disabled={loading || !input.trim()}
-                className="absolute right-3 bottom-3 w-10 h-10 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-xl flex items-center justify-center transition-colors shadow-sm"
-              >
-                <Send className="w-5 h-5 text-white" />
+            <div className="relative bg-gray-50 rounded-2xl border border-gray-200 focus-within:ring-2 focus-within:ring-blue-500">
+              <textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Type your message..." rows={1} disabled={loading} className="w-full px-6 py-4 pr-14 bg-transparent border-none resize-none focus:outline-none" style={{ minHeight: '56px' }} />
+              <button type="submit" disabled={loading || !input.trim()} className="absolute right-3 bottom-3 w-10 h-10 bg-blue-600 hover:bg-blue-700 text-white rounded-xl flex items-center justify-center">
+                <Send className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-xs text-gray-400 text-center mt-2">
-              Press Enter to send • Shift + Enter for new line
-            </p>
           </form>
         </div>
       </div>
