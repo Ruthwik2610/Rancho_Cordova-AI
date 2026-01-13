@@ -24,8 +24,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 1. GENERATE EMBEDDING
-    // FIX: We must explicitly add "/pipeline/feature-extraction" to the router URL.
-    // Without this, the model defaults to "Sentence Similarity" mode and fails.
+    // FIX: Explicitly specify the pipeline task to avoid "Sentence Similarity" error
     const modelUrl = "https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction";
     
     let queryVector: number[] = [];
@@ -60,8 +59,8 @@ export async function POST(req: NextRequest) {
       const result = await response.json();
       
       // Parse Embedding
-      // The pipeline API usually returns a flat array or nested array depending on batch size
       if (Array.isArray(result)) {
+         // The pipeline returns a nested array [[0.1, 0.2...]] or flat depending on input
          queryVector = (Array.isArray(result[0]) ? result[0] : result) as number[];
       } else {
         throw new Error("Invalid embedding format received from Hugging Face");
