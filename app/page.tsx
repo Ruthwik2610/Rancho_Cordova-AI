@@ -14,6 +14,7 @@ import {
   Title,
   Tooltip,
   Legend,
+  ChartOptions,
 } from 'chart.js';
 import { Line, Bar, Pie, Doughnut } from 'react-chartjs-2';
 
@@ -30,21 +31,34 @@ ChartJS.register(
   Legend
 );
 
-type ChartData = {
+interface ChartDataset {
+  label: string;
+  data: number[];
+  backgroundColor?: string | string[];
+  borderColor?: string | string[];
+  borderWidth?: number;
+}
+
+interface ChartDataType {
+  labels: string[];
+  datasets: ChartDataset[];
+}
+
+interface ChartData {
   type: 'chart';
   chartType: 'line' | 'bar' | 'pie' | 'doughnut';
   title: string;
-  data: any;
+  data: ChartDataType;
   explanation: string;
-};
+}
 
-type Message = {
+interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   chartData?: ChartData;
   sources?: Array<{ source: string; score: number }>;
-};
+}
 
 type AgentType = 'customer' | 'energy';
 
@@ -116,16 +130,17 @@ export default function Home() {
       };
 
       setMessages(prev => [...prev, assistantMessage]);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error:', error);
-      setError(error.message);
+      const errorMessage = error instanceof Error ? error.message : 'An error occurred';
+      setError(errorMessage);
       
-      const errorMessage: Message = {
+      const errorMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content: `I apologize, but I encountered an error. Please try again or contact support if the issue persists.`
       };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages(prev => [...prev, errorMsg]);
     } finally {
       setLoading(false);
       inputRef.current?.focus();
@@ -140,7 +155,7 @@ export default function Home() {
   };
 
   const renderChart = (chartData: ChartData) => {
-    const chartOptions = {
+    const chartOptions: ChartOptions<any> = {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
@@ -149,12 +164,14 @@ export default function Home() {
       },
     };
 
-    const ChartComponent = {
+    const ChartComponents = {
       line: Line,
       bar: Bar,
       pie: Pie,
       doughnut: Doughnut,
-    }[chartData.chartType];
+    };
+
+    const ChartComponent = ChartComponents[chartData.chartType];
 
     return (
       <div className="mt-4 bg-white rounded-lg p-4 border border-gray-200">
