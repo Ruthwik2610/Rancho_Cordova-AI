@@ -5,10 +5,7 @@ import Groq from 'groq-sdk';
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY;
 const PINECONE_INDEX_NAME = process.env.PINECONE_INDEX_NAME || 'rancho-cordova';
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
-
-if (!PINECONE_API_KEY || !GROQ_API_KEY) {
-  console.error('Missing required environment variables');
-}
+const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
 
 export async function POST(req: NextRequest) {
   try {
@@ -32,7 +29,8 @@ export async function POST(req: NextRequest) {
     const pc = new Pinecone({ apiKey: PINECONE_API_KEY });
     const index = pc.index(PINECONE_INDEX_NAME);
 
-    // Generate embedding using HuggingFace (free, matches your ingestion model)
+    // Generate embedding using HuggingFace
+    // We add the Authorization header here to fix the "Failed to generate embeddings" error
     let queryVector: number[];
     
     try {
@@ -40,7 +38,10 @@ export async function POST(req: NextRequest) {
         'https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2',
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${HUGGINGFACE_API_KEY}` 
+          },
           body: JSON.stringify({ 
             inputs: message,
             options: { wait_for_model: true }
@@ -49,14 +50,16 @@ export async function POST(req: NextRequest) {
       );
 
       if (!embeddingResponse.ok) {
-        throw new Error('Embedding generation failed');
+        const errorText = await embeddingResponse.text();
+        console.error('HuggingFace API Error:', errorText);
+        throw new Error(`HuggingFace API failed: ${embeddingResponse.status} - ${errorText}`);
       }
 
       queryVector = await embeddingResponse.json();
     } catch (embError) {
-      console.error('Embedding error:', embError);
+      console.error('Embedding generation failed:', embError);
       return NextResponse.json(
-        { error: 'Failed to generate embeddings' },
+        { error: 'Failed to generate embeddings. The AI model is currently unavailable.' },
         { status: 500 }
       );
     }
@@ -71,10 +74,10 @@ export async function POST(req: NextRequest) {
 
     // Build context from results
     const relevantDocs = queryResponse.matches
-      .filter(match => (match.score || 0) > 0.5)
+      .filter(match => (match.score || 0) > 0.4) // Lowered threshold slightly
       .map(match => ({
-        text: match.metadata?.text || '',
-        source: match.metadata?.source || 'Unknown',
+        text: match.metadata?.text ? String(match.metadata.text) : '',
+        source: match.metadata?.source ? String(match.metadata.source) : 'Unknown',
         score: match.score || 0
       }));
 
