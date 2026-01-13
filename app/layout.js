@@ -2,7 +2,7 @@ import './globals.css';
 
 export const metadata = {
   title: 'Rancho Cordova AI',
-  description: 'AI Assistant for City Services & Energy',
+  description: 'City Services & Energy Assistant',
 };
 
 export default function RootLayout({ children }) {
