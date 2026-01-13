@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Pinecone } from '@pinecone-database/pinecone';
 import Groq from 'groq-sdk';
 
-// Force Node.js runtime
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 10; 
@@ -25,8 +24,9 @@ export async function POST(req: NextRequest) {
     }
 
     // 1. GENERATE EMBEDDING
-    // FIX: Updated to the new 'router' endpoint required by the 410 error
-    const modelUrl = "https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2";
+    // FIX: We must explicitly add "/pipeline/feature-extraction" to the router URL.
+    // Without this, the model defaults to "Sentence Similarity" mode and fails.
+    const modelUrl = "https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction";
     
     let queryVector: number[] = [];
     
@@ -53,7 +53,6 @@ export async function POST(req: NextRequest) {
 
       if (!response.ok) {
         const errorText = await response.text();
-        // Log the specific error to help debug if the URL changes again
         console.error(`HF Router Error (${response.status}):`, errorText);
         throw new Error(`Hugging Face API Error: ${response.status} - ${errorText}`);
       }
@@ -61,6 +60,7 @@ export async function POST(req: NextRequest) {
       const result = await response.json();
       
       // Parse Embedding
+      // The pipeline API usually returns a flat array or nested array depending on batch size
       if (Array.isArray(result)) {
          queryVector = (Array.isArray(result[0]) ? result[0] : result) as number[];
       } else {
