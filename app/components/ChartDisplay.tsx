@@ -14,7 +14,6 @@ import {
 } from 'chart.js';
 import { Line, Bar, Pie, Doughnut } from 'react-chartjs-2';
 
-// Register Chart.js components globally for this component
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -50,39 +49,55 @@ export default function ChartDisplay({ chartData }: { chartData: ChartData }) {
     plugins: {
       legend: {
         position: 'top' as const,
+        labels: {
+          usePointStyle: true,
+          boxWidth: 8,
+          font: { family: "'Inter', sans-serif", size: 11 }
+        }
       },
       title: {
         display: true,
         text: chartData.title,
+        font: { family: "'Inter', sans-serif", size: 14, weight: 'bold' },
+        color: '#1e293b', // slate-800
+        padding: { bottom: 20 }
       },
     },
+    scales: {
+      y: {
+        grid: { color: '#f1f5f9' }, // slate-100
+        ticks: { font: { size: 10 } }
+      },
+      x: {
+        grid: { display: false },
+        ticks: { font: { size: 10 } }
+      }
+    }
   };
 
   const renderChart = () => {
     switch (chartData.chartType) {
-      case 'line':
-        return <Line options={options} data={chartData.data} />;
-      case 'bar':
-        return <Bar options={options} data={chartData.data} />;
-      case 'pie':
-        return <Pie options={options} data={chartData.data} />;
-      case 'doughnut':
-        return <Doughnut options={options} data={chartData.data} />;
-      default:
-        return <p className="text-red-500">Unsupported chart type</p>;
+      case 'line': return <Line options={options as any} data={chartData.data} />;
+      case 'bar': return <Bar options={options as any} data={chartData.data} />;
+      case 'pie': return <Pie options={options as any} data={chartData.data} />;
+      case 'doughnut': return <Doughnut options={options as any} data={chartData.data} />;
+      default: return <p className="text-red-500 text-sm">Unsupported chart type</p>;
     }
   };
 
   return (
-    <div className="w-full mt-4 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-      <div className="p-4 h-72">
+    <div className="w-full">
+      <div className="relative h-64 w-full">
         {renderChart()}
       </div>
       {chartData.explanation && (
-        <div className="px-4 pb-4">
-          <p className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg border border-gray-100">
-            💡 {chartData.explanation}
-          </p>
+        <div className="mt-4 pt-4 border-t border-slate-100">
+          <div className="flex gap-2 items-start">
+            <span className="text-blue-500 text-lg leading-none">💡</span>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {chartData.explanation}
+            </p>
+          </div>
         </div>
       )}
     </div>

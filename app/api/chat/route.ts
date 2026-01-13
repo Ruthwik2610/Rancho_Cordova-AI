@@ -80,9 +80,6 @@ export async function POST(req: NextRequest) {
       .map(doc => doc.metadata?.text).join('\n\n');
 
     // 3. STRICT COMMAND TRIGGER
-    // We strictly filter for the words in your "Plotting commands" list.
-    // Allowed Keywords: "forecast", "trend", "breakdown", "volume"
-    // Plus explicit overrides: "graph", "chart", "plot"
     const isChartRequest = /\b(forecast|trend|breakdown|volume|graph|chart|plot)\b/i.test(message);
 
     const chartInstruction = `
@@ -117,7 +114,7 @@ export async function POST(req: NextRequest) {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: message }
       ],
-      model: 'llama-3.3-70b-versatile',
+      model: 'llama-3.1-70b-versatile',
       temperature: 0.3,
       max_tokens: 1024,
     });
@@ -142,7 +139,6 @@ export async function POST(req: NextRequest) {
             chartData = parsed;
             finalText = parsed.explanation || "Here is the visualization you requested.";
         } else {
-             // Fallback if parsing failed but we wanted a chart
              if (cleanContent.includes('{')) {
                 finalText = "I found the data, but couldn't generate the visualization. Here is the summary: " + rawContent.replace(/\{[\s\S]*\}/, '');
              }
