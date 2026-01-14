@@ -79,40 +79,41 @@ export async function POST(req: NextRequest) {
       .filter(match => (match.score || 0) > 0.4)
       .map(doc => doc.metadata?.text).join('\n\n');
 
-    // 3. GENERATE ANSWER (GROQ)
-    const groq = new Groq({ apiKey: GROQ_API_KEY });
-    const isDataQuery = /\b(graph|chart|show|visualize|plot|display|data|statistics|trend|compare)\b/i.test(message);
-
-    // --- YOUR IMPROVED SYSTEM PROMPTS ---
+    // 3. HYBRID HINT LOGIC (The Professional Fix)
+    // We check for keywords not to FORCE a chart, but to nudge the model prompt.
+    const visualKeywords = /\b(graph|chart|plot|visualize|trend|diagram|heatmap|pie|bar|line|compare|vs|versus)\b/i.test(message);
+    
     const chartInstruction = `
-      IMPORTANT: The user wants to visualize data. You MUST respond with ONLY this JSON format:
-      {
-        "type": "chart",
-        "chartType": "line",
-        "title": "Chart Title",
-        "explanation": "Brief explanation of what the chart shows",
-        "data": {
-          "labels": ["Jan", "Feb", "Mar"],
-          "datasets": [{
-            "label": "Dataset Name",
-            "data": [10, 20, 30],
-            "borderColor": "rgb(59, 130, 246)",
-            "backgroundColor": "rgba(59, 130, 246, 0.5)"
-          }]
-        }
+    DECISION LOGIC:
+    ${visualKeywords 
+      ? "HINT: The user's message contains keywords suggesting they MIGHT want a visualization. Evaluate if a chart is the best way to answer. If yes, use the JSON format below." 
+      : "HINT: The user did not explicitly ask for a chart. Only provide one if the data is complex and absolutely requires visualization."}
+
+    JSON FORMAT (Use this ONLY for charts):
+    {
+      "type": "chart",
+      "chartType": "line", // options: "line", "bar", "pie", "doughnut"
+      "title": "Chart Title",
+      "explanation": "Brief explanation of the data",
+      "data": {
+        "labels": ["Label1", "Label2"],
+        "datasets": [{
+          "label": "Dataset Name",
+          "data": [10, 20],
+          "borderColor": "rgb(59, 130, 246)",
+          "backgroundColor": "rgba(59, 130, 246, 0.5)"
+        }]
       }
-      chartType can be: "line", "bar", "pie", or "doughnut".
-      Do NOT include any text outside this JSON. Do NOT use markdown code blocks.
+    }
+    IMPORTANT: If you decide NOT to show a chart, just respond with plain text. Do not output JSON.
     `;
 
+    // 4. GENERATE ANSWER (GROQ)
+    const groq = new Groq({ apiKey: GROQ_API_KEY });
+
     const systemPrompts = {
-      energy: isDataQuery 
-        ? `You are an energy efficiency advisor for Rancho Cordova. Context: ${context || 'No specific context found.'} ${chartInstruction}`
-        : `You are an energy efficiency advisor for Rancho Cordova. Context: ${context || 'No specific context found.'}.`,
-      
-      customer: isDataQuery
-        ? `You are a city services assistant for Rancho Cordova. Context: ${context || 'No specific context found.'} ${chartInstruction}`
-        : `You are a city services assistant for Rancho Cordova. Context: ${context || 'No specific context found.'}. Be helpful and concise.`
+      energy: `You are an energy efficiency advisor for Rancho Cordova. Context: ${context || 'No context.'} \n\n${chartInstruction}`,
+      customer: `You are a city services assistant for Rancho Cordova. Context: ${context || 'No context.'} \n\n${chartInstruction}`
     };
 
     const completion = await groq.chat.completions.create({
@@ -120,43 +121,31 @@ export async function POST(req: NextRequest) {
         { role: 'system', content: systemPrompts[agentType as keyof typeof systemPrompts] },
         { role: 'user', content: message }
       ],
-      model: 'llama-3.3-70b-versatile',
-      temperature: 0.7,
+      model: 'llama-3.1-70b-versatile',
+      temperature: 0.3, // Low temperature = precise JSON, less creativity
       max_tokens: 1024,
     });
 
     const responseContent = completion.choices[0]?.message?.content || 'I could not generate a response.';
     
-    // --- YOUR IMPROVED PARSING LOGIC ---
+    // 5. PARSE RESPONSE
     let chartData = null;
     let finalText = responseContent;
 
-    if (isDataQuery) {
-      try {
-        // 1. Clean markdown
-        let cleanResponse = responseContent.trim()
-          .replace(/^```json\s*/, '')
-          .replace(/^```\s*/, '')
-          .replace(/```$/, '');
-        
-        // 2. Try parsing full response
-        try {
-          const parsed = JSON.parse(cleanResponse);
-          if (parsed.type === 'chart') {
-            chartData = parsed;
-            finalText = parsed.explanation; // Use the explanation as the text bubble
-          }
-        } catch (e) {
-          // 3. Fallback: Regex extraction
-          const jsonMatch = cleanResponse.match(/\{[\s\S]*"type":\s*"chart"[\s\S]*\}/);
-          if (jsonMatch) {
-            chartData = JSON.parse(jsonMatch[0]);
-            finalText = chartData.explanation;
-          }
-        }
-      } catch (e) {
-        console.warn('Failed to parse chart JSON', e);
+    try {
+      let cleanResponse = responseContent.trim()
+        .replace(/^```json\s*/, '')
+        .replace(/^```\s*/, '')
+        .replace(/```$/, '');
+      
+      const parsed = JSON.parse(cleanResponse);
+      
+      if (parsed.type === 'chart') {
+        chartData = parsed;
+        finalText = parsed.explanation;
       }
+    } catch (e) {
+      // Normal text response
     }
 
     return NextResponse.json({
