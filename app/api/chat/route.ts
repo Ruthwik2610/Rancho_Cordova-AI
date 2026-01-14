@@ -24,9 +24,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 1. GENERATE EMBEDDING
-    // FIX: Explicitly specify the pipeline task to avoid "Sentence Similarity" error
     const modelUrl = "https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction";
-    
     let queryVector: number[] = [];
     
     try {
@@ -37,37 +35,32 @@ export async function POST(req: NextRequest) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          inputs: message,
+          inputs: [message],
           options: { wait_for_model: false, use_cache: true }
         }),
       });
 
-      // Handle "Model Loading" (503)
       if (response.status === 503) {
-        return NextResponse.json(
-          { error: 'Model loading', estimated_time: 20 },
-          { status: 503 }
-        );
+        return NextResponse.json({ error: 'Model loading', estimated_time: 20 }, { status: 503 });
       }
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`HF Router Error (${response.status}):`, errorText);
-        throw new Error(`Hugging Face API Error: ${response.status} - ${errorText}`);
+      const responseText = await response.text();
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch (e) {
+        throw new Error(`HF non-JSON error: ${response.status} - ${responseText.substring(0, 100)}`);
       }
 
-      const result = await response.json();
-      
-      // Parse Embedding
+      if (!response.ok) throw new Error(`HF API Error: ${response.status}`);
+
       if (Array.isArray(result)) {
-         // The pipeline returns a nested array [[0.1, 0.2...]] or flat depending on input
          queryVector = (Array.isArray(result[0]) ? result[0] : result) as number[];
       } else {
-        throw new Error("Invalid embedding format received from Hugging Face");
+        throw new Error("Invalid embedding format");
       }
-
     } catch (error: any) {
-      console.error('Embedding generation failed:', error);
+      console.error('Embedding failed:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
@@ -90,9 +83,36 @@ export async function POST(req: NextRequest) {
     const groq = new Groq({ apiKey: GROQ_API_KEY });
     const isDataQuery = /\b(graph|chart|show|visualize|plot|display|data|statistics|trend|compare)\b/i.test(message);
 
+    // --- YOUR IMPROVED SYSTEM PROMPTS ---
+    const chartInstruction = `
+      IMPORTANT: The user wants to visualize data. You MUST respond with ONLY this JSON format:
+      {
+        "type": "chart",
+        "chartType": "line",
+        "title": "Chart Title",
+        "explanation": "Brief explanation of what the chart shows",
+        "data": {
+          "labels": ["Jan", "Feb", "Mar"],
+          "datasets": [{
+            "label": "Dataset Name",
+            "data": [10, 20, 30],
+            "borderColor": "rgb(59, 130, 246)",
+            "backgroundColor": "rgba(59, 130, 246, 0.5)"
+          }]
+        }
+      }
+      chartType can be: "line", "bar", "pie", or "doughnut".
+      Do NOT include any text outside this JSON. Do NOT use markdown code blocks.
+    `;
+
     const systemPrompts = {
-      energy: `You are an energy efficiency advisor for Rancho Cordova. Context: ${context || 'No specific context found.'}. ${isDataQuery ? 'Return JSON for charts.' : ''}`,
-      customer: `You are a city services assistant for Rancho Cordova. Context: ${context || 'No specific context found.'}. Be helpful and concise.`
+      energy: isDataQuery 
+        ? `You are an energy efficiency advisor for Rancho Cordova. Context: ${context || 'No specific context found.'} ${chartInstruction}`
+        : `You are an energy efficiency advisor for Rancho Cordova. Context: ${context || 'No specific context found.'}.`,
+      
+      customer: isDataQuery
+        ? `You are a city services assistant for Rancho Cordova. Context: ${context || 'No specific context found.'} ${chartInstruction}`
+        : `You are a city services assistant for Rancho Cordova. Context: ${context || 'No specific context found.'}. Be helpful and concise.`
     };
 
     const completion = await groq.chat.completions.create({
@@ -100,32 +120,53 @@ export async function POST(req: NextRequest) {
         { role: 'system', content: systemPrompts[agentType as keyof typeof systemPrompts] },
         { role: 'user', content: message }
       ],
-      model: 'llama-3.3-70b-versatile',
+      model: 'llama-3.1-70b-versatile',
       temperature: 0.7,
       max_tokens: 1024,
     });
 
     const responseContent = completion.choices[0]?.message?.content || 'I could not generate a response.';
     
-    // Parse Chart JSON
+    // --- YOUR IMPROVED PARSING LOGIC ---
     let chartData = null;
-    if (isDataQuery && responseContent.includes('"type": "chart"')) {
+    let finalText = responseContent;
+
+    if (isDataQuery) {
       try {
-        const jsonMatch = responseContent.match(/\{[\s\S]*"type":\s*"chart"[\s\S]*\}/);
-        if (jsonMatch) chartData = JSON.parse(jsonMatch[0]);
+        // 1. Clean markdown
+        let cleanResponse = responseContent.trim()
+          .replace(/^```json\s*/, '')
+          .replace(/^```\s*/, '')
+          .replace(/```$/, '');
+        
+        // 2. Try parsing full response
+        try {
+          const parsed = JSON.parse(cleanResponse);
+          if (parsed.type === 'chart') {
+            chartData = parsed;
+            finalText = parsed.explanation; // Use the explanation as the text bubble
+          }
+        } catch (e) {
+          // 3. Fallback: Regex extraction
+          const jsonMatch = cleanResponse.match(/\{[\s\S]*"type":\s*"chart"[\s\S]*\}/);
+          if (jsonMatch) {
+            chartData = JSON.parse(jsonMatch[0]);
+            finalText = chartData.explanation;
+          }
+        }
       } catch (e) {
-        console.warn('Failed to parse chart JSON');
+        console.warn('Failed to parse chart JSON', e);
       }
     }
 
     return NextResponse.json({
-      response: chartData ? chartData.explanation : responseContent,
+      response: finalText,
       chartData: chartData,
       sources: queryResponse.matches.slice(0, 3).map(d => ({ source: d.metadata?.source, score: d.score }))
     });
 
   } catch (error: any) {
     console.error('API Route Error:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: `Critical Error: ${error.message}` }, { status: 500 });
   }
 }
