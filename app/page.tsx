@@ -1,56 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, Zap, User, Bot, Sparkles, AlertCircle, CheckCircle } from 'lucide-react';
+import { Send, Zap, User, Bot, Sparkles, CheckCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  ArcElement,
-  Title,
-  Tooltip,
-  Legend,
-  ChartOptions,
-} from 'chart.js';
-import { Line, Bar, Pie, Doughnut } from 'react-chartjs-2';
-
-// Register Chart.js components
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  ArcElement,
-  Title,
-  Tooltip,
-  Legend
-);
-
-interface ChartDataset {
-  label: string;
-  data: number[];
-  backgroundColor?: string | string[];
-  borderColor?: string | string[];
-  borderWidth?: number;
-}
-
-interface ChartDataType {
-  labels: string[];
-  datasets: ChartDataset[];
-}
-
-interface ChartData {
-  type: 'chart';
-  chartType: 'line' | 'bar' | 'pie' | 'doughnut';
-  title: string;
-  data: ChartDataType;
-  explanation: string;
-}
+// Import the new component
+import ChartDisplay, { ChartData } from './components/ChartDisplay';
 
 interface Message {
   id: string;
@@ -80,7 +34,6 @@ export default function Home() {
   }, [messages]);
 
   useEffect(() => {
-    // Welcome message
     setMessages([{
       id: '0',
       role: 'assistant',
@@ -105,26 +58,16 @@ export default function Home() {
     setLoading(true);
     setError(null);
 
-    // --- SMART POLLING LOGIC ---
-    // This handles the "Cold Start" problem by waiting if the server is busy
     const fetchWithRetry = async (attempt = 1): Promise<any> => {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          message: userMessage.content, 
-          agentType 
-        })
+        body: JSON.stringify({ message: userMessage.content, agentType })
       });
 
-      // If model is loading (503), wait and retry automatically
       if (res.status === 503) {
         if (attempt > 10) throw new Error("Server is busy. Please try again later.");
-        
-        // Update UI to show we are waiting
         setError(`Waking up AI Brain... (Attempt ${attempt}/5)`);
-        
-        // Wait 5 seconds
         await new Promise(resolve => setTimeout(resolve, 5000));
         return fetchWithRetry(attempt + 1);
       }
@@ -149,7 +92,7 @@ export default function Home() {
       };
 
       setMessages(prev => [...prev, assistantMessage]);
-      setError(null); // Clear any "waking up" messages
+      setError(null);
     } catch (error: unknown) {
       console.error('Error:', error);
       const errorMessage = error instanceof Error ? error.message : 'An error occurred';
@@ -158,7 +101,7 @@ export default function Home() {
       const errorMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: `I apologize, but I encountered an error. Please try again or contact support if the issue persists.`
+        content: `I apologize, but I encountered an error. Please try again.`
       };
       setMessages(prev => [...prev, errorMsg]);
     } finally {
@@ -174,88 +117,35 @@ export default function Home() {
     }
   };
 
-  const renderChart = (chartData: ChartData) => {
-    const chartOptions: ChartOptions<any> = {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'top' as const },
-        title: { display: true, text: chartData.title },
-      },
-    };
-
-    const ChartComponents = {
-      line: Line,
-      bar: Bar,
-      pie: Pie,
-      doughnut: Doughnut,
-    };
-
-    const ChartComponent = ChartComponents[chartData.chartType];
-
-    return (
-      <div className="mt-4 bg-white rounded-lg p-4 border border-gray-200">
-        <div className="h-64">
-          <ChartComponent data={chartData.data} options={chartOptions} />
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-lg border-b border-gray-200 shadow-sm">
-        <div className="max-w-5xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl flex items-center justify-center">
-                <Sparkles className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">Rancho Cordova AI</h1>
-                <p className="text-xs text-gray-500">Your City Assistant</p>
-              </div>
+        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl flex items-center justify-center">
+              <Sparkles className="w-6 h-6 text-white" />
             </div>
-
-            {/* Agent Selector (No Logout Button) */}
-            <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
-              <button
-                onClick={() => setAgentType('customer')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                  agentType === 'customer'
-                    ? 'bg-white text-blue-600 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                <User className="w-4 h-4 inline mr-1" />
-                City Services
-              </button>
-              <button
-                onClick={() => setAgentType('energy')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                  agentType === 'energy'
-                    ? 'bg-white text-green-600 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                <Zap className="w-4 h-4 inline mr-1" />
-                Energy Advisor
-              </button>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">Rancho Cordova AI</h1>
+              <p className="text-xs text-gray-500">Your City Assistant</p>
             </div>
+          </div>
+          <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
+            <button onClick={() => setAgentType('customer')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${agentType === 'customer' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>
+              <User className="w-4 h-4 inline mr-1" /> Services
+            </button>
+            <button onClick={() => setAgentType('energy')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${agentType === 'energy' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>
+              <Zap className="w-4 h-4 inline mr-1" /> Energy
+            </button>
           </div>
         </div>
       </header>
 
-      {/* Error/Loading Banner */}
+      {/* Error Banner */}
       <AnimatePresence>
         {error && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="max-w-5xl mx-auto px-4 pt-4"
-          >
+          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="max-w-5xl mx-auto px-4 pt-4">
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-2">
               <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
               <p className="text-sm text-blue-700">{error}</p>
@@ -273,60 +163,35 @@ export default function Home() {
                 key={msg.id}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.3 }}
                 className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
               >
-                {/* Avatar */}
                 <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
-                  msg.role === 'user'
-                    ? 'bg-blue-600'
-                    : agentType === 'energy'
-                    ? 'bg-gradient-to-br from-green-600 to-emerald-600'
-                    : 'bg-gradient-to-br from-purple-600 to-blue-600'
+                  msg.role === 'user' ? 'bg-blue-600' : agentType === 'energy' ? 'bg-green-600' : 'bg-purple-600'
                 }`}>
-                  {msg.role === 'user' ? (
-                    <User className="w-5 h-5 text-white" />
-                  ) : agentType === 'energy' ? (
-                    <Zap className="w-5 h-5 text-white" />
-                  ) : (
-                    <Bot className="w-5 h-5 text-white" />
-                  )}
+                  {msg.role === 'user' ? <User className="w-5 h-5 text-white" /> : <Bot className="w-5 h-5 text-white" />}
                 </div>
 
-                {/* Message Content */}
                 <div className={`flex-1 max-w-3xl ${msg.role === 'user' ? 'text-right' : ''}`}>
-                  <div
-                    className={`inline-block px-6 py-4 rounded-2xl shadow-sm ${
-                      msg.role === 'user'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-white text-gray-900 border border-gray-200'
-                    }`}
-                  >
+                  {/* Text Bubble */}
+                  <div className={`inline-block px-6 py-4 rounded-2xl shadow-sm ${
+                      msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-white text-gray-900 border border-gray-200'
+                    }`}>
                     <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                   </div>
 
-                  {/* Chart Visualization */}
-                  {msg.chartData && msg.role === 'assistant' && (
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: 0.2 }}
-                    >
-                      {renderChart(msg.chartData)}
+                  {/* Chart Rendering - Uses new Component */}
+                  {msg.chartData && (
+                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
+                      <ChartDisplay chartData={msg.chartData} />
                     </motion.div>
                   )}
 
                   {/* Sources */}
                   {msg.sources && msg.sources.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
-                      {msg.sources.map((source, idx) => (
-                        <span
-                          key={idx}
-                          className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full"
-                        >
-                          <CheckCircle className="w-3 h-3" />
-                          {source.source} ({source.score}%)
+                      {msg.sources.map((s, i) => (
+                        <span key={i} className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
+                          <CheckCircle className="w-3 h-3" /> {s.source}
                         </span>
                       ))}
                     </div>
@@ -336,31 +201,14 @@ export default function Home() {
             ))}
           </AnimatePresence>
 
-          {/* Typing Indicator */}
           {loading && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex gap-4"
-            >
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                agentType === 'energy'
-                  ? 'bg-gradient-to-br from-green-600 to-emerald-600'
-                  : 'bg-gradient-to-br from-purple-600 to-blue-600'
-              }`}>
-                {agentType === 'energy' ? (
-                  <Zap className="w-5 h-5 text-white" />
-                ) : (
-                  <Bot className="w-5 h-5 text-white" />
-                )}
-              </div>
-              <div className="flex-1">
-                <div className="inline-block px-6 py-4 rounded-2xl bg-white border border-gray-200 shadow-sm">
-                  <div className="flex gap-2">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                  </div>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-4">
+              <div className="w-10 h-10 bg-gray-200 rounded-full animate-pulse" />
+              <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
+                <div className="flex gap-2">
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-75" />
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-150" />
                 </div>
               </div>
             </motion.div>
@@ -374,33 +222,22 @@ export default function Home() {
       <div className="fixed bottom-0 left-0 right-0 bg-gradient-to-t from-white via-white to-transparent pt-8 pb-6">
         <div className="max-w-5xl mx-auto px-4">
           <form onSubmit={sendMessage} className="relative">
-            <div className="relative bg-white rounded-2xl shadow-lg border border-gray-200 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent transition-all">
+            <div className="relative bg-white rounded-2xl shadow-lg border border-gray-200 focus-within:ring-2 focus-within:ring-blue-500">
               <textarea
                 ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={
-                  agentType === 'energy'
-                    ? 'Ask about energy savings, SMUD programs, or request data visualizations...'
-                    : 'Ask about city services, permits, utilities, or who to contact...'
-                }
+                placeholder={agentType === 'energy' ? "Ask about energy usage..." : "Ask about city services..."}
                 rows={1}
                 disabled={loading}
-                className="w-full px-6 py-4 pr-14 bg-transparent border-none resize-none focus:outline-none text-gray-900 placeholder-gray-400 max-h-32"
+                className="w-full px-6 py-4 pr-14 bg-transparent border-none resize-none focus:outline-none max-h-32"
                 style={{ minHeight: '56px' }}
               />
-              <button
-                type="submit"
-                disabled={loading || !input.trim()}
-                className="absolute right-3 bottom-3 w-10 h-10 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-xl flex items-center justify-center transition-colors shadow-sm"
-              >
-                <Send className="w-5 h-5 text-white" />
+              <button type="submit" disabled={loading || !input.trim()} className="absolute right-3 bottom-3 w-10 h-10 bg-blue-600 hover:bg-blue-700 text-white rounded-xl flex items-center justify-center">
+                <Send className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-xs text-gray-400 text-center mt-2">
-              Press Enter to send • Shift + Enter for new line
-            </p>
           </form>
         </div>
       </div>
