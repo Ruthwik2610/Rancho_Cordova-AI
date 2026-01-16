@@ -14,7 +14,7 @@ const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
 export async function POST(req: NextRequest) {
   try {
     if (!PINECONE_API_KEY || !GROQ_API_KEY || !HUGGINGFACE_API_KEY) {
-      return NextResponse.json({ error: 'Server configuration error: Missing API keys' }, { status: 500 });
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
     }
 
     const { message, agentType = 'customer' } = await req.json();
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
       try {
         result = JSON.parse(responseText);
       } catch (e) {
-        throw new Error(`HF non-JSON error: ${response.status} - ${responseText.substring(0, 100)}`);
+        throw new Error(`HF non-JSON error: ${response.status}`);
       }
 
       if (!response.ok) throw new Error(`HF API Error: ${response.status}`);
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
       }
     } catch (error: any) {
       console.error('Embedding failed:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: "Search system temporary unavailable." }, { status: 500 });
     }
 
     // 2. QUERY PINECONE
@@ -79,22 +79,16 @@ export async function POST(req: NextRequest) {
       .filter(match => (match.score || 0) > 0.4)
       .map(doc => doc.metadata?.text).join('\n\n');
 
-    // 3. HYBRID HINT LOGIC (The Professional Fix)
-    // We check for keywords not to FORCE a chart, but to nudge the model prompt.
-    const visualKeywords = /\b(graph|chart|plot|visualize|trend|diagram|heatmap|pie|bar|line|compare|vs|versus)\b/i.test(message);
-    
-    const chartInstruction = `
-    DECISION LOGIC:
-    ${visualKeywords 
-      ? "HINT: The user's message contains keywords suggesting they MIGHT want a visualization. Evaluate if a chart is the best way to answer. If yes, use the JSON format below." 
-      : "HINT: The user did not explicitly ask for a chart. Only provide one if the data is complex and absolutely requires visualization."}
+    // 3. STRICT TRIGGER
+    const isChartRequest = /\b(graph|chart|plot|visualize|diagram|heatmap|pie|bar|line|scatter)\b/i.test(message);
 
-    JSON FORMAT (Use this ONLY for charts):
+    const chartInstruction = `
+    IMPORTANT: The user explicitly requested a chart. You MUST respond with ONLY this JSON format:
     {
       "type": "chart",
-      "chartType": "line", // options: "line", "bar", "pie", "doughnut"
+      "chartType": "line",
       "title": "Chart Title",
-      "explanation": "Brief explanation of the data",
+      "explanation": "A natural language sentence explaining the data shown.",
       "data": {
         "labels": ["Label1", "Label2"],
         "datasets": [{
@@ -105,57 +99,79 @@ export async function POST(req: NextRequest) {
         }]
       }
     }
-    IMPORTANT: If you decide NOT to show a chart, just respond with plain text. Do not output JSON.
+    CRITICAL: 
+    1. Output ONLY ONE JSON object. 
+    2. Do not output multiple charts. Pick the most important one.
+    3. Output ONLY valid JSON. No markdown formatting.
     `;
 
-    // 4. GENERATE ANSWER (GROQ)
     const groq = new Groq({ apiKey: GROQ_API_KEY });
 
-    const systemPrompts = {
-      energy: `You are an energy efficiency advisor for Rancho Cordova. Context: ${context || 'No context.'} \n\n${chartInstruction}`,
-      customer: `You are a city services assistant for Rancho Cordova. Context: ${context || 'No context.'} \n\n${chartInstruction}`
-    };
+    const systemPrompt = isChartRequest
+      ? `You are a helper for Rancho Cordova. Context: ${context}. ${chartInstruction}`
+      : `You are a helper for Rancho Cordova. Context: ${context}. Answer clearly in plain text.`;
 
     const completion = await groq.chat.completions.create({
       messages: [
-        { role: 'system', content: systemPrompts[agentType as keyof typeof systemPrompts] },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: message }
       ],
-      model: 'llama-3.1-70b-versatile',
-      temperature: 0.3, // Low temperature = precise JSON, less creativity
+      model: 'llama-3.3-70b-versatile',
+      temperature: 0.3,
       max_tokens: 1024,
     });
 
-    const responseContent = completion.choices[0]?.message?.content || 'I could not generate a response.';
+    const rawContent = completion.choices[0]?.message?.content || 'I could not generate a response.';
     
-    // 5. PARSE RESPONSE
+    // 4. ROBUST PARSING & CLEANING
     let chartData = null;
-    let finalText = responseContent;
+    let finalText = rawContent;
 
-    try {
-      let cleanResponse = responseContent.trim()
-        .replace(/^```json\s*/, '')
-        .replace(/^```\s*/, '')
-        .replace(/```$/, '');
-      
-      const parsed = JSON.parse(cleanResponse);
-      
-      if (parsed.type === 'chart') {
-        chartData = parsed;
-        finalText = parsed.explanation;
+    if (isChartRequest) {
+      try {
+        // Step A: Aggressively remove Markdown code blocks
+        let cleanContent = rawContent
+          .replace(/```json/g, '')
+          .replace(/```/g, '')
+          .trim();
+
+]
+        const jsonMatch = cleanContent.match(/\{[\s\S]*?"type":\s*"chart"[\s\S]*?\}/);
+
+        if (jsonMatch) {
+          try {
+            const parsed = JSON.parse(jsonMatch[0]);
+            chartData = parsed;
+            // Success: Set text to the explanation
+            finalText = parsed.explanation || "Here is the visualization you requested.";
+          } catch (e) {
+            console.warn("JSON Parse specific match failed");
+          }
+        } 
+        
+
+        if (!chartData && (cleanContent.trim().startsWith('{') || cleanContent.includes('"type": "chart"'))) {
+
+           finalText = "I found the data, but I couldn't generate a clean chart for it. Please try asking for one specific metric at a time.";
+        } else if (chartData) {
+
+           finalText = chartData.explanation;
+        }
+
+      } catch (e) {
+        console.warn('Parsing Error:', e);
+        finalText = "I encountered an error processing the visualization.";
       }
-    } catch (e) {
-      // Normal text response
     }
 
     return NextResponse.json({
-      response: finalText,
+      response: finalText, // This ensures clean text only
       chartData: chartData,
       sources: queryResponse.matches.slice(0, 3).map(d => ({ source: d.metadata?.source, score: d.score }))
     });
 
   } catch (error: any) {
     console.error('API Route Error:', error);
-    return NextResponse.json({ error: `Critical Error: ${error.message}` }, { status: 500 });
+    return NextResponse.json({ error: "An internal system error occurred." }, { status: 500 });
   }
 }
