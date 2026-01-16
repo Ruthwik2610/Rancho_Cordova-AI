@@ -79,14 +79,17 @@ export async function POST(req: NextRequest) {
       .filter(match => (match.score || 0) > 0.4)
       .map(doc => doc.metadata?.text).join('\n\n');
 
-    // 3. STRICT TRIGGER
-    const isChartRequest = /\b(graph|chart|plot|visualize|diagram|heatmap|pie|bar|line|scatter)\b/i.test(message);
+    // 3. STRICT COMMAND TRIGGER
+    // We strictly filter for the words in your "Plotting commands" list.
+    // Allowed Keywords: "forecast", "trend", "breakdown", "volume"
+    // Plus explicit overrides: "graph", "chart", "plot"
+    const isChartRequest = /\b(forecast|trend|breakdown|volume|graph|chart|plot)\b/i.test(message);
 
     const chartInstruction = `
-    IMPORTANT: The user explicitly requested a chart. You MUST respond with ONLY this JSON format:
+    IMPORTANT: The user issued a plotting command. You MUST respond with ONLY this JSON format:
     {
       "type": "chart",
-      "chartType": "line",
+      "chartType": "line", // options: "line", "bar", "pie", "doughnut"
       "title": "Chart Title",
       "explanation": "A natural language sentence explaining the data shown.",
       "data": {
@@ -99,17 +102,15 @@ export async function POST(req: NextRequest) {
         }]
       }
     }
-    CRITICAL: 
-    1. Output ONLY ONE JSON object. 
-    2. Do not output multiple charts. Pick the most important one.
-    3. Output ONLY valid JSON. No markdown formatting.
+    CRITICAL: Output ONLY valid JSON.
     `;
 
     const groq = new Groq({ apiKey: GROQ_API_KEY });
 
+    // Conditional Prompting
     const systemPrompt = isChartRequest
       ? `You are a helper for Rancho Cordova. Context: ${context}. ${chartInstruction}`
-      : `You are a helper for Rancho Cordova. Context: ${context}. Answer clearly in plain text.`;
+      : `You are a helper for Rancho Cordova. Context: ${context}. Answer clearly in plain text. Do NOT generate JSON. Do NOT generate Charts.`;
 
     const completion = await groq.chat.completions.create({
       messages: [
@@ -123,49 +124,37 @@ export async function POST(req: NextRequest) {
 
     const rawContent = completion.choices[0]?.message?.content || 'I could not generate a response.';
     
-    // 4. ROBUST PARSING & CLEANING
+    // 4. PARSE & CLEAN
     let chartData = null;
     let finalText = rawContent;
 
     if (isChartRequest) {
       try {
-        // Step A: Aggressively remove Markdown code blocks
         let cleanContent = rawContent
           .replace(/```json/g, '')
           .replace(/```/g, '')
           .trim();
 
-
         const jsonMatch = cleanContent.match(/\{[\s\S]*?"type":\s*"chart"[\s\S]*?\}/);
 
         if (jsonMatch) {
-          try {
             const parsed = JSON.parse(jsonMatch[0]);
             chartData = parsed;
-            // Success: Set text to the explanation
             finalText = parsed.explanation || "Here is the visualization you requested.";
-          } catch (e) {
-            console.warn("JSON Parse specific match failed");
-          }
-        } 
-        
-
-        if (!chartData && (cleanContent.trim().startsWith('{') || cleanContent.includes('"type": "chart"'))) {
-
-           finalText = "I found the data, but I couldn't generate a clean chart for it. Please try asking for one specific metric at a time.";
-        } else if (chartData) {
-
-           finalText = chartData.explanation;
+        } else {
+             // Fallback if parsing failed but we wanted a chart
+             if (cleanContent.includes('{')) {
+                finalText = "I found the data, but couldn't generate the visualization. Here is the summary: " + rawContent.replace(/\{[\s\S]*\}/, '');
+             }
         }
-
       } catch (e) {
-        console.warn('Parsing Error:', e);
-        finalText = "I encountered an error processing the visualization.";
+        console.warn('Chart Parse Error:', e);
+        finalText = "I encountered an error visualizing the data.";
       }
     }
 
     return NextResponse.json({
-      response: finalText, // This ensures clean text only
+      response: finalText,
       chartData: chartData,
       sources: queryResponse.matches.slice(0, 3).map(d => ({ source: d.metadata?.source, score: d.score }))
     });
