@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
           .replace(/```/g, '')
           .trim();
 
-]
+
         const jsonMatch = cleanContent.match(/\{[\s\S]*?"type":\s*"chart"[\s\S]*?\}/);
 
         if (jsonMatch) {
