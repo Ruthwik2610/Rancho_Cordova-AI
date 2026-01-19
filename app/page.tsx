@@ -1,15 +1,4 @@
-This is a significant upgrade. I have restructured the application to match the **Claude Desktop UI** layout:
 
-1. **Sidebar Added**: Features a "New Chat" button, a categorized history list (Today, Yesterday, Previous), and a bottom section for the User Profile & Logout.
-2. **Navigation Moved**: The user profile and logout are now permanently docked at the bottom of the sidebar.
-3. **History Logic**: I added a working "New Chat" feature that clears the screen. The history list is visual (mocked) for this demo to show you the look and feel.
-4. **Responsive**: The sidebar collapses into a drawer on mobile screens.
-
-Here is the full code for **`app/page.tsx`**.
-
-### `app/page.tsx` (Full Sidebar Version)
-
-```tsx
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
@@ -438,4 +427,4 @@ export default function Home() {
   );
 }
 
-```
+
