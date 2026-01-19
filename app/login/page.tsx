@@ -35,20 +35,20 @@ export default function LoginPage() {
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8 lg:p-12 relative overflow-hidden">
         {/* Background Decorative Element */}
         <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-50 to-white -z-10" />
-        <Image 
-          src="/static/reactanglehalf.png" 
-          alt="Decoration" 
-          width={600} 
-          height={600} 
+        <Image
+          src="/static/reactanglehalf.png"
+          alt="Decoration"
+          width={600}
+          height={600}
           className="absolute top-[-20%] left-[-10%] opacity-10 blur-3xl -z-10"
         />
 
         <div className="w-full max-w-md space-y-8">
           <div className="text-center space-y-2">
             <div className="relative w-48 h-20 mx-auto mb-6">
-              <Image 
-                src="/static/ranchocordova.jpeg" 
-                alt="City of Rancho Cordova" 
+              <Image
+                src="/static/ranchocordova.jpeg"
+                alt="City of Rancho Cordova"
                 fill
                 className="object-contain"
                 priority
@@ -124,14 +124,16 @@ export default function LoginPage() {
 
       {/* Right Side - Hero Image */}
       <div className="hidden lg:block lg:w-1/2 relative bg-slate-900">
+        {/* REPLACED Lightning Symbol with Landscape Photo */}
         <Image 
-          src="/static/energy_page2.png" 
-          alt="Rancho Cordova Energy" 
+          src="/static/image_a8ecc8.jpg" 
+          alt="Rancho Cordova Landscape" 
           fill
-          className="object-cover opacity-80 mix-blend-overlay"
+          className="object-cover opacity-90"
           priority
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-blue-900/90 via-blue-900/40 to-transparent" />
+        {/* Gradient Overlay for Text Readability */}
+        <div className="absolute inset-0 bg-gradient-to-t from-blue-950/90 via-blue-900/40 to-blue-900/20" />
         
         <div className="absolute bottom-0 left-0 w-full p-16 text-white space-y-6">
           <div className="w-16 h-1 bg-blue-400 rounded-full" />
