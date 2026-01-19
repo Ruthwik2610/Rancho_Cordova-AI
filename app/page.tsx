@@ -171,7 +171,7 @@ export default function Home() {
               <div className="h-14 flex items-center justify-between px-4 border-b border-slate-200/50">
                 <div className="relative w-32 h-8 opacity-80">
                   <Image 
-                    src="/static/ranchocordova.jpeg" // Using the JPEG (Logo)
+                    src="/static/images.png" // Using the JPEG (Logo)
                     alt="Logo" 
                     fill 
                     className="object-contain object-left mix-blend-multiply" 
