@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { Send, LogOut, Sparkles, AlertCircle, Paperclip, ChevronDown } from 'lucide-react';
+import { Send, LogOut, Sparkles, AlertCircle, Paperclip } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ChartDisplay, { ChartData } from './components/ChartDisplay';
 
@@ -27,13 +27,13 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auth Check
+  // 1. Authentication Check
   useEffect(() => {
     const isAuthenticated = localStorage.getItem('isAuthenticated');
     if (!isAuthenticated) router.push('/login');
   }, [router]);
 
-  // Initial Greeting with specific styling
+  // 2. Initial Greeting (Agent Specific)
   useEffect(() => {
     const initialMsg = agentType === 'energy' 
       ? "Hello. I am your Energy Advisor.\nI can analyze usage patterns, compare SMUD rates, or forecast demand."
@@ -64,7 +64,7 @@ export default function Home() {
     setLoading(true);
     setError(null);
 
-    // Reset height of textarea
+    // Reset textarea height
     if (inputRef.current) inputRef.current.style.height = 'auto';
 
     const fetchWithRetry = async (attempt = 1): Promise<any> => {
@@ -111,7 +111,6 @@ export default function Home() {
     }
   };
 
-  // Auto-resize textarea
   const adjustTextareaHeight = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
     e.target.style.height = 'auto';
@@ -121,23 +120,24 @@ export default function Home() {
   return (
     <div className="flex flex-col h-screen bg-[#F9F9FB] text-slate-800 font-sans selection:bg-blue-100 selection:text-blue-900">
       
-      {/* 1. Refined Header (Glassmorphic) */}
+      {/* HEADER */}
       <header className="sticky top-0 z-30 w-full bg-[#F9F9FB]/80 backdrop-blur-xl border-b border-black/5">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
           
-          {/* Logo Area - FIXED WITH MIX-BLEND-MULTIPLY */}
+          
           <div className="flex items-center gap-3 opacity-90 hover:opacity-100 transition-opacity cursor-default">
-            <div className="relative w-44 h-12"> {/* Increased width/height slightly */}
+            <div className="relative w-48 h-12"> 
               <Image 
-                src="/static/ranchocordova.jpeg" 
+                src="/static/images.png"  
                 alt="Rancho Cordova" 
                 fill 
-                className="object-contain object-left mix-blend-multiply" 
+                className="object-contain object-left" 
+                priority
               />
             </div>
           </div>
 
-          {/* Center: Agent Toggle (Pill Design) */}
+          {/* Agent Toggle Pills */}
           <div className="absolute left-1/2 top-1/2 -translate-x-1/2 hidden md:flex bg-slate-200/50 p-1 rounded-full items-center gap-1 shadow-inner">
             <button
               onClick={() => setAgentType('customer')}
@@ -177,14 +177,14 @@ export default function Home() {
             </button>
           </div>
 
-          {/* Right: User & Logout */}
+          {/* User Profile & Logout */}
           <div className="flex items-center gap-3">
-             <div className="w-8 h-8 rounded-full bg-blue-100 border border-blue-200 flex items-center justify-center text-blue-700 text-xs font-bold">
+             <div className="w-8 h-8 rounded-full bg-blue-100 border border-blue-200 flex items-center justify-center text-blue-700 text-xs font-bold shadow-sm">
                 RC
              </div>
              <button 
                 onClick={handleLogout}
-                className="text-slate-400 hover:text-slate-600 transition-colors"
+                className="text-slate-400 hover:text-slate-600 transition-colors p-2 hover:bg-slate-100 rounded-full"
                 title="Sign Out"
              >
                 <LogOut className="w-5 h-5" />
@@ -193,7 +193,7 @@ export default function Home() {
         </div>
       </header>
 
-      {/* 2. Main Chat Canvas */}
+      {/* CHAT AREA */}
       <main className="flex-1 overflow-y-auto w-full">
         <div className="max-w-3xl mx-auto px-4 py-12 pb-40">
           <AnimatePresence initial={false}>
@@ -205,7 +205,7 @@ export default function Home() {
                 transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
                 className={`group flex gap-6 mb-8 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
               >
-                {/* Avatar Column */}
+                {/* Avatar */}
                 <div className="flex-shrink-0 mt-1">
                   {msg.role === 'assistant' ? (
                      <div className={`w-9 h-9 rounded-full overflow-hidden shadow-sm border ${agentType === 'energy' ? 'border-emerald-100' : 'border-blue-100'}`}>
@@ -224,25 +224,23 @@ export default function Home() {
                   )}
                 </div>
 
-                {/* Content Column */}
+                {/* Message Content */}
                 <div className={`flex-1 max-w-2xl ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
                   
-                  {/* Name Label */}
                   <div className="mb-1 text-xs font-semibold text-slate-400 uppercase tracking-wider">
                     {msg.role === 'assistant' ? 'Rancho AI' : 'You'}
                   </div>
 
-                  {/* Message Bubble */}
                   <div className={`prose prose-slate max-w-none text-[15px] leading-7 ${
                     msg.role === 'user' ? 'text-slate-800' : 'text-slate-700'
                   }`}>
-                    {/* Styling the "Welcome" message differently (Serif font) */}
+                    {/* Serif font for greeting */}
                     <div className={msg.id === 'init' ? 'font-serif text-lg text-slate-800' : 'whitespace-pre-wrap'}>
                        {msg.content}
                     </div>
                   </div>
 
-                  {/* Chart Rendering */}
+                  {/* Charts */}
                   {msg.chartData && (
                     <motion.div 
                       initial={{ opacity: 0, y: 10 }} 
@@ -253,7 +251,7 @@ export default function Home() {
                     </motion.div>
                   )}
 
-                  {/* Sources */}
+                  {/* Citations */}
                   {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
                     <div className="mt-4 flex flex-wrap gap-2">
                        {msg.sources.map((s, i) => (
@@ -295,7 +293,7 @@ export default function Home() {
         </div>
       </main>
 
-      {/* 3. Floating Input Area (Claude Style) */}
+      {/* FLOATING INPUT (Claude Style) */}
       <div className="fixed bottom-0 left-0 w-full bg-gradient-to-t from-[#F9F9FB] via-[#F9F9FB] to-transparent pb-6 pt-10 px-4 z-20">
         <div className="max-w-3xl mx-auto">
           <motion.div 
@@ -316,7 +314,6 @@ export default function Home() {
                 disabled={loading}
               />
               
-              {/* Input Toolbar */}
               <div className="flex items-center justify-between px-3 pb-3 pt-1">
                 <div className="flex items-center gap-2 px-2">
                    <button type="button" className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
