@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
@@ -6,8 +5,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { 
   Send, LogOut, Paperclip, Menu, Plus, 
-  MessageSquare, X, MoreHorizontal, User as UserIcon,
-  ChevronRight, Sparkles, AlertCircle 
+  X, User as UserIcon, AlertCircle 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ChartDisplay, { ChartData } from './components/ChartDisplay';
@@ -23,7 +21,7 @@ interface Message {
 
 type AgentType = 'customer' | 'energy';
 
-// --- Mock History Data ---
+// --- Mock History ---
 const MOCK_HISTORY = [
   { label: 'Today', items: ['Solar Panel Rebates', 'Permit Application Status'] },
   { label: 'Yesterday', items: ['Garbage Collection Schedule', 'SMUD Rate Comparison'] },
@@ -39,7 +37,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [agentType, setAgentType] = useState<AgentType>('customer');
   const [error, setError] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true); // Default open on desktop
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Refs
@@ -52,7 +50,7 @@ export default function Home() {
     if (!isAuthenticated) router.push('/login');
   }, [router]);
 
-  // 2. Initial Greeting (Runs when agentType changes or on New Chat)
+  // 2. Initial Greeting (Resets whenever chat is cleared or agent changes)
   useEffect(() => {
     if (messages.length === 0) {
       const initialMsg = agentType === 'energy' 
@@ -77,14 +75,22 @@ export default function Home() {
     router.push('/login');
   };
 
-  // New Chat Action
+  // New Chat
   const handleNewChat = () => {
-    setMessages([]); // This triggers the useEffect above to reset the greeting
+    setMessages([]);
     setMobileMenuOpen(false);
     if (window.innerWidth < 768) setSidebarOpen(false);
   };
 
-  // Send Message Logic
+  // Handle Agent Switch (Updated Logic)
+  const handleAgentSwitch = (newType: AgentType) => {
+    if (agentType !== newType) {
+      setAgentType(newType);
+      setMessages([]); // Clears chat to trigger the new greeting immediately
+    }
+  };
+
+  // Send Message
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || loading) return;
@@ -150,11 +156,10 @@ export default function Home() {
   return (
     <div className="flex h-screen bg-[#F9F9FB] text-slate-800 font-sans overflow-hidden">
       
-      {/* --- SIDEBAR (Desktop & Mobile) --- */}
+      {/* --- SIDEBAR --- */}
       <AnimatePresence>
         {(sidebarOpen || mobileMenuOpen) && (
           <>
-            {/* Mobile Overlay */}
             <div 
               className="fixed inset-0 bg-black/20 z-40 md:hidden"
               onClick={() => setMobileMenuOpen(false)}
@@ -171,7 +176,7 @@ export default function Home() {
               <div className="h-14 flex items-center justify-between px-4 border-b border-slate-200/50">
                 <div className="relative w-32 h-8 opacity-80">
                   <Image 
-                    src="/static/images.png" // Using the JPEG (Logo)
+                    src="/static/images.png"
                     alt="Logo" 
                     fill 
                     className="object-contain object-left mix-blend-multiply" 
@@ -184,8 +189,6 @@ export default function Home() {
 
               {/* Sidebar Content */}
               <div className="flex-1 overflow-y-auto p-3 custom-scrollbar">
-                
-                {/* New Chat Button */}
                 <button 
                   onClick={handleNewChat}
                   className="w-full flex items-center gap-3 px-3 py-2.5 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 hover:border-slate-300 transition-all text-sm font-medium text-slate-700 group mb-6"
@@ -196,7 +199,6 @@ export default function Home() {
                   New Chat
                 </button>
 
-                {/* History List */}
                 <div className="space-y-6">
                   {MOCK_HISTORY.map((group, i) => (
                     <div key={i}>
@@ -206,8 +208,8 @@ export default function Home() {
                       <ul className="space-y-0.5">
                         {group.items.map((item, j) => (
                           <li key={j}>
-                            <button className="w-full text-left px-3 py-2 rounded-md hover:bg-slate-200/50 text-[13px] text-slate-600 truncate transition-colors flex items-center gap-2">
-                              <span className="truncate">{item}</span>
+                            <button className="w-full text-left px-3 py-2 rounded-md hover:bg-slate-200/50 text-[13px] text-slate-600 truncate transition-colors">
+                              {item}
                             </button>
                           </li>
                         ))}
@@ -217,7 +219,7 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Sidebar Footer (Profile) */}
+              {/* Sidebar Footer */}
               <div className="p-3 border-t border-slate-200 bg-[#F5F5F7]">
                 <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-white transition-colors cursor-pointer group relative">
                   <div className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm shadow-sm">
@@ -227,8 +229,6 @@ export default function Home() {
                     <p className="text-sm font-medium text-slate-800 truncate">Rancho Admin</p>
                     <p className="text-xs text-slate-500 truncate">admin@cityof.rancho</p>
                   </div>
-                  
-                  {/* Logout Button (Hidden by default, shown on hover/focus) */}
                   <button 
                     onClick={(e) => { e.stopPropagation(); handleLogout(); }}
                     className="absolute right-2 p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md opacity-0 group-hover:opacity-100 transition-all"
@@ -250,30 +250,21 @@ export default function Home() {
         <header className="sticky top-0 z-20 w-full bg-white/80 backdrop-blur-xl border-b border-slate-100 h-14 flex items-center justify-between px-4">
           <div className="flex items-center gap-2">
             {!sidebarOpen && (
-              <button 
-                onClick={() => setSidebarOpen(true)} 
-                className="hidden md:flex p-2 text-slate-400 hover:bg-slate-100 rounded-md transition-colors"
-              >
+              <button onClick={() => setSidebarOpen(true)} className="hidden md:flex p-2 text-slate-400 hover:bg-slate-100 rounded-md transition-colors">
                 <Menu className="w-5 h-5" />
               </button>
             )}
-            <button 
-              onClick={() => setMobileMenuOpen(true)} 
-              className="md:hidden p-2 text-slate-400 hover:bg-slate-100 rounded-md"
-            >
+            <button onClick={() => setMobileMenuOpen(true)} className="md:hidden p-2 text-slate-400 hover:bg-slate-100 rounded-md">
               <Menu className="w-5 h-5" />
             </button>
-            
-            {/* Mobile Logo Fallback */}
             <div className="md:hidden relative w-32 h-8 ml-2">
                <Image src="/static/images.png" alt="Logo" fill className="object-contain object-left" />
             </div>
           </div>
 
-          {/* Agent Toggle (Pill) */}
           <div className="flex bg-slate-100/80 p-1 rounded-full items-center gap-1">
             <button
-              onClick={() => setAgentType('customer')}
+              onClick={() => handleAgentSwitch('customer')}
               className={`relative px-3 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${
                 agentType === 'customer' 
                   ? 'bg-white text-blue-700 shadow-sm ring-1 ring-black/5' 
@@ -287,7 +278,7 @@ export default function Home() {
                </span>
             </button>
             <button
-              onClick={() => setAgentType('energy')}
+              onClick={() => handleAgentSwitch('energy')}
               className={`relative px-3 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${
                 agentType === 'energy' 
                   ? 'bg-white text-emerald-700 shadow-sm ring-1 ring-black/5' 
@@ -303,9 +294,9 @@ export default function Home() {
           </div>
         </header>
 
-        {/* Chat Scroll Area */}
+        {/* Chat Area - Padded Bottom */}
         <div className="flex-1 overflow-y-auto w-full scroll-smooth">
-          <div className="max-w-3xl mx-auto px-4 py-8 pb-32">
+          <div className="max-w-3xl mx-auto px-4 py-8 pb-60">
             <AnimatePresence initial={false}>
               {messages.map((msg) => (
                 <motion.div
@@ -314,16 +305,12 @@ export default function Home() {
                   animate={{ opacity: 1, y: 0 }}
                   className={`group flex gap-5 mb-8 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
                 >
-                  {/* Avatar */}
                   <div className="flex-shrink-0 mt-1">
                     {msg.role === 'assistant' ? (
                       <div className={`w-8 h-8 rounded-full overflow-hidden border ${agentType === 'energy' ? 'border-emerald-100' : 'border-blue-100'}`}>
                           <Image 
                             src={agentType === 'energy' ? "/static/energy_agent_ranchocordova.png" : "/static/customer_service_ranchocordova.png"}
-                            alt="AI" 
-                            width={32} 
-                            height={32}
-                            className="object-cover h-full w-full"
+                            alt="AI" width={32} height={32} className="object-cover h-full w-full"
                           />
                       </div>
                     ) : (
@@ -333,16 +320,13 @@ export default function Home() {
                     )}
                   </div>
 
-                  {/* Message Body */}
                   <div className={`flex-1 max-w-2xl ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
                     <div className="mb-1 text-[10px] font-bold text-slate-300 uppercase tracking-widest">
                       {msg.role === 'assistant' ? 'Rancho AI' : 'You'}
                     </div>
 
-                    <div className={`prose prose-slate max-w-none text-[16px] leading-7 text-slate-700`}>
-                      <div className={msg.id === 'init' ? 'font-serif text-xl text-slate-900' : 'whitespace-pre-wrap'}>
-                        {msg.content}
-                      </div>
+                    <div className={`prose prose-slate max-w-none text-base leading-7 text-slate-700 whitespace-pre-wrap`}>
+                       {msg.content}
                     </div>
 
                     {msg.chartData && (
@@ -381,7 +365,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Input Area (Bottom) */}
+        {/* Input Area (Floating) */}
         <div className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-white via-white/95 to-transparent pb-6 pt-12 px-4">
           <div className="max-w-3xl mx-auto">
             <div className={`relative bg-white rounded-2xl border border-slate-200 shadow-xl shadow-slate-200/50 focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-50 transition-all overflow-hidden ${loading ? 'opacity-80 grayscale' : ''}`}>
@@ -391,7 +375,7 @@ export default function Home() {
                 onChange={adjustTextareaHeight}
                 onKeyDown={handleKeyDown}
                 placeholder={agentType === 'energy' ? "Ask about energy usage, rates, or trends..." : "Ask about city events, permits, or services..."}
-                className="w-full bg-transparent border-none text-slate-800 placeholder-slate-400 px-4 py-3 focus:ring-0 resize-none max-h-48 min-h-[52px] text-[16px] leading-relaxed"
+                className="w-full bg-transparent border-none text-slate-800 placeholder-slate-400 px-4 py-3 focus:ring-0 resize-none max-h-48 min-h-[52px] text-base leading-relaxed"
                 rows={1}
                 disabled={loading}
               />
@@ -426,5 +410,3 @@ export default function Home() {
     </div>
   );
 }
-
-
