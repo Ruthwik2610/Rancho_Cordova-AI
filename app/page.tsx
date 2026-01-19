@@ -125,14 +125,14 @@ export default function Home() {
       <header className="sticky top-0 z-30 w-full bg-[#F9F9FB]/80 backdrop-blur-xl border-b border-black/5">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
           
-          {/* Logo Area */}
+          {/* Logo Area - FIXED WITH MIX-BLEND-MULTIPLY */}
           <div className="flex items-center gap-3 opacity-90 hover:opacity-100 transition-opacity cursor-default">
-            <div className="relative w-36 h-10">
+            <div className="relative w-44 h-12"> {/* Increased width/height slightly */}
               <Image 
                 src="/static/ranchocordova.jpeg" 
                 alt="Rancho Cordova" 
                 fill 
-                className="object-contain object-left" 
+                className="object-contain object-left mix-blend-multiply" 
               />
             </div>
           </div>
