@@ -47,7 +47,7 @@ export default function LoginPage() {
           <div className="text-center space-y-2">
             <div className="relative w-48 h-20 mx-auto mb-6">
               <Image
-                src="/static/ranchocordova.jpeg"
+                src="/static/images.png"
                 alt="City of Rancho Cordova"
                 fill
                 className="object-contain"
