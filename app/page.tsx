@@ -120,18 +120,37 @@ export default function Home() {
     if (inputRef.current) inputRef.current.style.height = 'auto';
 
     const fetchWithRetry = async (attempt = 1): Promise<any> => {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMessage.content, agentType })
-      });
-      if (res.status === 503) {
-        if (attempt > 3) throw new Error("System is warming up... please try again.");
-        await new Promise(r => setTimeout(r, 2000));
-        return fetchWithRetry(attempt + 1);
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: userMessage.content, agentType })
+        });
+
+        // Handle 503 (Service Unavailable / Warming up)
+        if (res.status === 503) {
+          if (attempt > 3) throw new Error("System is warming up... please try again.");
+          await new Promise(r => setTimeout(r, 2000));
+          return fetchWithRetry(attempt + 1);
+        }
+
+        // Safe Response Handling (Fix for "Unexpected token" error)
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "Server Error");
+          return data;
+        } else {
+          // Fallback for non-JSON errors (e.g. 500 Internal Server Error html/text)
+          const text = await res.text();
+          throw new Error(text || `Server returned ${res.status} ${res.statusText}`);
+        }
+
+      } catch (err: any) {
+        // If it's a retryable network error, you could add logic here
+        // Otherwise rethrow to be caught by the outer try/catch
+        throw err;
       }
-      if (!res.ok) throw new Error((await res.json()).error || "Server Error");
-      return res.json();
     };
 
     try {
@@ -145,7 +164,18 @@ export default function Home() {
         timestamp: new Date()
       }]);
     } catch (err: any) {
-      setError(err.message || "An error occurred");
+      console.error("Message Error:", err);
+      // Clean up the error message for display
+      const msg = err.message.length > 100 ? "An internal server error occurred." : err.message;
+      setError(msg);
+      
+      // Optional: Add an assistant message indicating failure
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: "I apologize, but I encountered an error processing your request. Please check the system logs or try again.",
+        timestamp: new Date()
+      }]);
     } finally {
       setLoading(false);
     }
