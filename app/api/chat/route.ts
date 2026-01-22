@@ -4,7 +4,7 @@ import Groq from 'groq-sdk';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 10; 
+export const maxDuration = 30; // Increased for safety
 
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY;
 const PINECONE_INDEX_NAME = process.env.PINECONE_INDEX_NAME || 'rancho-cordova';
@@ -44,16 +44,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Model loading', estimated_time: 20 }, { status: 503 });
       }
 
-      const responseText = await response.text();
-      let result;
-      try {
-        result = JSON.parse(responseText);
-      } catch (e) {
-        throw new Error(`HF non-JSON error: ${response.status}`);
-      }
-
       if (!response.ok) throw new Error(`HF API Error: ${response.status}`);
 
+      const result = await response.json();
       if (Array.isArray(result)) {
          queryVector = (Array.isArray(result[0]) ? result[0] : result) as number[];
       } else {
@@ -61,6 +54,7 @@ export async function POST(req: NextRequest) {
       }
     } catch (error: any) {
       console.error('Embedding failed:', error);
+      // Fallback: Proceed without context if embedding fails, or return error
       return NextResponse.json({ error: "Search system temporary unavailable." }, { status: 500 });
     }
 
@@ -79,36 +73,36 @@ export async function POST(req: NextRequest) {
       .filter(match => (match.score || 0) > 0.4)
       .map(doc => doc.metadata?.text).join('\n\n');
 
-    // 3. STRICT COMMAND TRIGGER
+    // 3. SYSTEM PROMPT (UPDATED FOR STRUCTURE)
     const isChartRequest = /\b(forecast|trend|breakdown|volume|graph|chart|plot)\b/i.test(message);
 
     const chartInstruction = `
     IMPORTANT: The user issued a plotting command. You MUST respond with ONLY this JSON format:
     {
       "type": "chart",
-      "chartType": "line", // options: "line", "bar", "pie", "doughnut"
+      "chartType": "line",
       "title": "Chart Title",
-      "explanation": "A natural language sentence explaining the data shown.",
-      "data": {
-        "labels": ["Label1", "Label2"],
-        "datasets": [{
-          "label": "Dataset Name",
-          "data": [10, 20],
-          "borderColor": "rgb(59, 130, 246)",
-          "backgroundColor": "rgba(59, 130, 246, 0.5)"
-        }]
-      }
+      "explanation": "Brief explanation.",
+      "data": { ... }
     }
-    CRITICAL: Output ONLY valid JSON.
     `;
 
-    const groq = new Groq({ apiKey: GROQ_API_KEY });
-
-    // Conditional Prompting
+    // --- CHANGED SECTION START ---
     const systemPrompt = isChartRequest
       ? `You are a helper for Rancho Cordova. Context: ${context}. ${chartInstruction}`
-      : `You are a helper for Rancho Cordova. Context: ${context}. Answer clearly in plain text. Do NOT generate JSON. Do NOT generate Charts.`;
+      : `You are a knowledgeable assistant for Rancho Cordova. Context: ${context}.
+         
+         CRITICAL FORMATTING RULES:
+         1. STRUCTURE: Use Markdown to structure your answer.
+         2. LISTS: Always use bullet points (•) for steps, lists, or multiple options. Never write long paragraphs for lists.
+         3. EMPHASIS: Use **bold** for phone numbers, emails, addresses, and key terms.
+         4. BREVITY: Keep descriptions concise.
+         5. TONE: Professional, helpful, and direct.
+         
+         Do NOT generate JSON. Do NOT generate Charts.`;
+    // --- CHANGED SECTION END ---
 
+    const groq = new Groq({ apiKey: GROQ_API_KEY });
     const completion = await groq.chat.completions.create({
       messages: [
         { role: 'system', content: systemPrompt },
@@ -127,25 +121,15 @@ export async function POST(req: NextRequest) {
 
     if (isChartRequest) {
       try {
-        let cleanContent = rawContent
-          .replace(/```json/g, '')
-          .replace(/```/g, '')
-          .trim();
-
+        let cleanContent = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
         const jsonMatch = cleanContent.match(/\{[\s\S]*?"type":\s*"chart"[\s\S]*?\}/);
-
         if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
             chartData = parsed;
-            finalText = parsed.explanation || "Here is the visualization you requested.";
-        } else {
-             if (cleanContent.includes('{')) {
-                finalText = "I found the data, but couldn't generate the visualization. Here is the summary: " + rawContent.replace(/\{[\s\S]*\}/, '');
-             }
+            finalText = parsed.explanation || "Here is the visualization.";
         }
       } catch (e) {
-        console.warn('Chart Parse Error:', e);
-        finalText = "I encountered an error visualizing the data.";
+        console.warn('Chart Parse Error', e);
       }
     }
 
