@@ -1,3 +1,4 @@
+// app/page.tsx
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
@@ -10,7 +11,6 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import ChartDisplay, { ChartData } from './components/ChartDisplay';
 
-// --- Types ---
 interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -21,7 +21,6 @@ interface Message {
 
 type AgentType = 'customer' | 'energy';
 
-// --- Mock History ---
 const MOCK_HISTORY = [
   { label: 'Today', items: ['Solar Panel Rebates', 'Permit Application Status'] },
   { label: 'Yesterday', items: ['Garbage Collection Schedule', 'SMUD Rate Comparison'] },
@@ -31,7 +30,6 @@ const MOCK_HISTORY = [
 export default function Home() {
   const router = useRouter();
   
-  // State
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -40,17 +38,25 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // 1. Auth Check
+  // 1. Auth Check (CHANGED: Use sessionStorage)
   useEffect(() => {
-    const isAuthenticated = localStorage.getItem('isAuthenticated');
-    if (!isAuthenticated) router.push('/login');
+    const isAuthenticated = sessionStorage.getItem('isAuthenticated');
+    if (!isAuthenticated) {
+      router.push('/login');
+      return;
+    }
+
+    // Get the selected agent from sessionStorage
+    const selectedAgent = sessionStorage.getItem('selectedAgent') as AgentType;
+    if (selectedAgent) {
+      setAgentType(selectedAgent);
+    }
   }, [router]);
 
-  // 2. Initial Greeting (Resets whenever chat is cleared or agent changes)
+  // 2. Initial Greeting
   useEffect(() => {
     if (messages.length === 0) {
       const initialMsg = agentType === 'energy' 
@@ -65,32 +71,29 @@ export default function Home() {
     }
   }, [agentType, messages.length]);
 
-  // Scroll to bottom
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   useEffect(() => { scrollToBottom() }, [messages]);
 
-  // Logout
+  // Logout (CHANGED: Clear sessionStorage)
   const handleLogout = () => {
-    localStorage.removeItem('isAuthenticated');
+    sessionStorage.clear();
     router.push('/login');
   };
 
-  // New Chat
   const handleNewChat = () => {
     setMessages([]);
     setMobileMenuOpen(false);
     if (window.innerWidth < 768) setSidebarOpen(false);
   };
 
-  // Handle Agent Switch (Updated Logic)
   const handleAgentSwitch = (newType: AgentType) => {
     if (agentType !== newType) {
       setAgentType(newType);
-      setMessages([]); // Clears chat to trigger the new greeting immediately
+      sessionStorage.setItem('selectedAgent', newType); // Save preference
+      setMessages([]);
     }
   };
 
-  // Send Message
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || loading) return;
@@ -156,7 +159,7 @@ export default function Home() {
   return (
     <div className="flex h-screen bg-[#F9F9FB] text-slate-800 font-sans overflow-hidden">
       
-      {/* --- SIDEBAR --- */}
+      {/* SIDEBAR */}
       <AnimatePresence>
         {(sidebarOpen || mobileMenuOpen) && (
           <>
@@ -172,7 +175,6 @@ export default function Home() {
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
               className={`fixed md:relative z-50 w-[280px] h-full bg-[#F5F5F7] border-r border-slate-200 flex flex-col shadow-xl md:shadow-none`}
             >
-              {/* Sidebar Header */}
               <div className="h-14 flex items-center justify-between px-4 border-b border-slate-200/50">
                 <div className="relative w-32 h-8 opacity-80">
                   <Image 
@@ -187,7 +189,6 @@ export default function Home() {
                 </button>
               </div>
 
-              {/* Sidebar Content */}
               <div className="flex-1 overflow-y-auto p-3 custom-scrollbar">
                 <button 
                   onClick={handleNewChat}
@@ -219,7 +220,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Sidebar Footer */}
               <div className="p-3 border-t border-slate-200 bg-[#F5F5F7]">
                 <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-white transition-colors cursor-pointer group relative">
                   <div className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm shadow-sm">
@@ -243,10 +243,9 @@ export default function Home() {
         )}
       </AnimatePresence>
 
-      {/* --- MAIN CONTENT --- */}
+      {/* MAIN CONTENT */}
       <main className="flex-1 flex flex-col h-full relative min-w-0 bg-white">
         
-        {/* Header */}
         <header className="sticky top-0 z-20 w-full bg-white/80 backdrop-blur-xl border-b border-slate-100 h-14 flex items-center justify-between px-4">
           <div className="flex items-center gap-2">
             {!sidebarOpen && (
@@ -294,7 +293,6 @@ export default function Home() {
           </div>
         </header>
 
-        {/* Chat Area - Padded Bottom */}
         <div className="flex-1 overflow-y-auto w-full scroll-smooth">
           <div className="max-w-3xl mx-auto px-4 py-8 pb-60">
             <AnimatePresence initial={false}>
@@ -365,7 +363,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Input Area (Floating) */}
         <div className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-white via-white/95 to-transparent pb-6 pt-12 px-4">
           <div className="max-w-3xl mx-auto">
             <div className={`relative bg-white rounded-2xl border border-slate-200 shadow-xl shadow-slate-200/50 focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-50 transition-all overflow-hidden ${loading ? 'opacity-80 grayscale' : ''}`}>
