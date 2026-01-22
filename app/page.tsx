@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { 
   Send, LogOut, Paperclip, Menu, Plus, 
-  X, User as UserIcon, AlertCircle, Copy, Check, Info
+  X, User as UserIcon, AlertCircle, Copy, Check, Info, Bot
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ChartDisplay, { ChartData } from './components/ChartDisplay';
@@ -127,28 +127,22 @@ export default function Home() {
           body: JSON.stringify({ message: userMessage.content, agentType })
         });
 
-        // Handle 503 (Service Unavailable / Warming up)
         if (res.status === 503) {
           if (attempt > 3) throw new Error("System is warming up... please try again.");
           await new Promise(r => setTimeout(r, 2000));
           return fetchWithRetry(attempt + 1);
         }
 
-        // Safe Response Handling (Fix for "Unexpected token" error)
         const contentType = res.headers.get("content-type");
         if (contentType && contentType.includes("application/json")) {
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || "Server Error");
           return data;
         } else {
-          // Fallback for non-JSON errors (e.g. 500 Internal Server Error html/text)
           const text = await res.text();
-          throw new Error(text || `Server returned ${res.status} ${res.statusText}`);
+          throw new Error(text || `Server returned ${res.status}`);
         }
-
       } catch (err: any) {
-        // If it's a retryable network error, you could add logic here
-        // Otherwise rethrow to be caught by the outer try/catch
         throw err;
       }
     };
@@ -165,15 +159,11 @@ export default function Home() {
       }]);
     } catch (err: any) {
       console.error("Message Error:", err);
-      // Clean up the error message for display
-      const msg = err.message.length > 100 ? "An internal server error occurred." : err.message;
-      setError(msg);
-      
-      // Optional: Add an assistant message indicating failure
+      setError(err.message.length > 100 ? "An internal server error occurred." : err.message);
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         role: 'assistant',
-        content: "I apologize, but I encountered an error processing your request. Please check the system logs or try again.",
+        content: "I apologize, but I encountered an error processing your request.",
         timestamp: new Date()
       }]);
     } finally {
@@ -194,22 +184,19 @@ export default function Home() {
     e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`;
   };
 
-  // --- Render Helpers ---
-
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
   return (
-    <div className="flex h-screen bg-[#F0F2F5] text-slate-900 font-sans overflow-hidden">
+    <div className="flex h-screen bg-[#F8FAFC] text-slate-900 font-sans overflow-hidden">
       
       {/* SIDEBAR */}
       <AnimatePresence>
         {(sidebarOpen || mobileMenuOpen) && (
           <>
-            {/* Mobile Backdrop */}
             <div 
-              className="fixed inset-0 bg-black/40 z-40 md:hidden backdrop-blur-sm"
+              className="fixed inset-0 bg-slate-900/20 z-40 md:hidden backdrop-blur-sm"
               onClick={() => setMobileMenuOpen(false)}
             />
             
@@ -218,19 +205,20 @@ export default function Home() {
               animate={{ x: 0 }}
               exit={{ x: -280 }}
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              className={`fixed md:relative z-50 w-[280px] h-full bg-[#FAFAFA] border-r border-slate-200 flex flex-col`}
+              className={`fixed md:relative z-50 w-[280px] h-full bg-white border-r border-slate-200 flex flex-col shadow-2xl md:shadow-none`}
             >
               {/* Sidebar Header */}
-              <div className="h-16 flex items-center justify-between px-4 border-b border-slate-100">
-                <div className="relative w-32 h-8 opacity-90">
+              <div className="h-16 flex items-center justify-between px-5 border-b border-slate-100">
+                <div className="relative w-36 h-10 opacity-100">
                   <Image 
                     src="/static/images.png"
                     alt="Logo" 
                     fill 
-                    className="object-contain object-left mix-blend-multiply" 
+                    className="object-contain object-left" 
+                    priority
                   />
                 </div>
-                <button onClick={() => { setSidebarOpen(false); setMobileMenuOpen(false); }} className="md:hidden p-2 text-slate-400 hover:bg-slate-100 rounded-lg">
+                <button onClick={() => { setSidebarOpen(false); setMobileMenuOpen(false); }} className="md:hidden p-2 text-slate-400 hover:bg-slate-50 rounded-lg">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -239,7 +227,7 @@ export default function Home() {
               <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
                 <button 
                   onClick={handleNewChat}
-                  className="w-full flex items-center gap-3 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-md hover:shadow-lg transition-all text-sm font-semibold mb-8 group"
+                  className="w-full flex items-center gap-3 px-4 py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl shadow-lg shadow-slate-900/10 hover:shadow-xl transition-all text-sm font-medium mb-8 group active:scale-95 duration-150"
                 >
                   <Plus className="w-5 h-5" />
                   New Chat
@@ -248,13 +236,13 @@ export default function Home() {
                 <div className="space-y-8">
                   {MOCK_HISTORY.map((group, i) => (
                     <div key={i}>
-                      <h3 className="px-2 text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">
+                      <h3 className="px-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">
                         {group.label}
                       </h3>
                       <ul className="space-y-1">
                         {group.items.map((item, j) => (
                           <li key={j}>
-                            <button className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-200/60 text-sm text-slate-600 truncate transition-colors">
+                            <button className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-slate-50 text-[13px] text-slate-600 font-medium truncate transition-colors">
                               {item}
                             </button>
                           </li>
@@ -266,14 +254,14 @@ export default function Home() {
               </div>
 
               {/* Sidebar Footer */}
-              <div className="p-4 border-t border-slate-200 bg-white">
-                <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer group relative">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-md">
+              <div className="p-4 border-t border-slate-100 bg-white">
+                <div className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer group relative border border-transparent hover:border-slate-100">
+                  <div className="w-9 h-9 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 font-bold text-xs">
                     RC
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-slate-800 truncate">Rancho Admin</p>
-                    <p className="text-xs text-slate-500 truncate">admin@rancho.city</p>
+                    <p className="text-sm font-semibold text-slate-900 truncate">Rancho Admin</p>
+                    <p className="text-[11px] text-slate-500 truncate">admin@rancho.city</p>
                   </div>
                   <button 
                     onClick={(e) => { e.stopPropagation(); handleLogout(); }}
@@ -290,83 +278,109 @@ export default function Home() {
       </AnimatePresence>
 
       {/* MAIN CONTENT AREA */}
-      <main className="flex-1 flex flex-col h-full relative min-w-0 bg-white shadow-xl z-0">
+      <main className="flex-1 flex flex-col h-full relative min-w-0 bg-[#F8FAFC]">
         
-        {/* Header */}
-        <header className="sticky top-0 z-20 w-full bg-white/90 backdrop-blur-md border-b border-slate-100 h-16 flex items-center justify-between px-4 sm:px-6">
-          <div className="flex items-center gap-3">
+        {/* Header - Fixed Height, Clear Separation */}
+        <header className="sticky top-0 z-20 w-full bg-white/80 backdrop-blur-xl border-b border-slate-200/80 shadow-[0_2px_4px_rgba(0,0,0,0.02)] h-16 flex items-center justify-between px-4 sm:px-8 transition-all">
+          <div className="flex items-center gap-4">
             {!sidebarOpen && (
-              <button onClick={() => setSidebarOpen(true)} className="hidden md:flex p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors">
+              <button onClick={() => setSidebarOpen(true)} className="hidden md:flex p-2 -ml-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors">
                 <Menu className="w-5 h-5" />
               </button>
             )}
-            <button onClick={() => setMobileMenuOpen(true)} className="md:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg">
+            <button onClick={() => setMobileMenuOpen(true)} className="md:hidden p-2 -ml-2 text-slate-500 hover:bg-slate-100 rounded-lg">
               <Menu className="w-5 h-5" />
             </button>
-            <div className="md:hidden relative w-32 h-8">
+            <div className="md:hidden relative w-28 h-8">
                <Image src="/static/images.png" alt="Logo" fill className="object-contain object-left" />
             </div>
+            
+            {/* Context Title (Desktop) */}
+            <div className="hidden md:block h-6 w-px bg-slate-200 mx-2"></div>
+            <h1 className="hidden md:block text-sm font-semibold text-slate-700">
+               {agentType === 'energy' ? 'Energy Advisor' : 'City Services'}
+            </h1>
           </div>
 
-          {/* Agent Switcher Pills */}
-          <div className="flex bg-slate-100 p-1.5 rounded-full items-center">
+          {/* Toggle Pills */}
+          <div className="flex bg-slate-100/80 p-1 rounded-lg border border-slate-200/50">
             <button
               onClick={() => handleAgentSwitch('customer')}
-              className={`relative px-4 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-2 ${
+              className={`relative px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-2 ${
                 agentType === 'customer' 
-                  ? 'bg-white text-blue-700 shadow-sm' 
+                  ? 'bg-white text-blue-700 shadow-sm ring-1 ring-black/5' 
                   : 'text-slate-500 hover:text-slate-700'
               }`}
             >
                <span className="relative z-10 flex items-center gap-1.5">
-                  <Image src="/static/customer_service_ranchocordova.png" alt="CS" width={16} height={16} />
+                  <Image src="/static/customer_service_ranchocordova.png" alt="CS" width={14} height={14} />
                   Services
                </span>
             </button>
             <button
               onClick={() => handleAgentSwitch('energy')}
-              className={`relative px-4 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-2 ${
+              className={`relative px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-2 ${
                 agentType === 'energy' 
-                  ? 'bg-white text-emerald-700 shadow-sm' 
+                  ? 'bg-white text-emerald-700 shadow-sm ring-1 ring-black/5' 
                   : 'text-slate-500 hover:text-slate-700'
               }`}
             >
                <span className="relative z-10 flex items-center gap-1.5">
-                  <Image src="/static/energy_agent_ranchocordova.png" alt="En" width={16} height={16} />
+                  <Image src="/static/energy_agent_ranchocordova.png" alt="En" width={14} height={14} />
                   Energy
                </span>
             </button>
           </div>
         </header>
 
-        {/* Scrollable Chat Area */}
-        <div className="flex-1 overflow-y-auto w-full bg-[#FFFFFF]">
-          <div className="max-w-4xl mx-auto px-4 py-8">
+        {/* Chat Content */}
+        <div className="flex-1 overflow-y-auto w-full scroll-smooth">
+          <div className="max-w-3xl mx-auto px-4 py-8 pb-4">
             
-            {/* Welcome State */}
+            {/* Empty State */}
             {messages.length === 0 && (
               <motion.div 
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex flex-col items-center justify-center mt-20 text-center space-y-6"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.4 }}
+                className="flex flex-col items-center justify-center mt-12 md:mt-20 text-center space-y-8"
               >
-                <div className={`w-24 h-24 rounded-3xl flex items-center justify-center shadow-xl ${
-                  agentType === 'energy' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
+                <div className={`relative w-20 h-20 rounded-2xl flex items-center justify-center shadow-xl shadow-slate-200 border-2 ${
+                  agentType === 'energy' 
+                    ? 'bg-emerald-50 border-emerald-100' 
+                    : 'bg-blue-50 border-blue-100'
                 }`}>
                    <Image 
                      src={agentType === 'energy' ? "/static/energy_agent_ranchocordova.png" : "/static/customer_service_ranchocordova.png"}
-                     alt="Agent" width={64} height={64}
+                     alt="Agent" width={48} height={48}
+                     className="drop-shadow-sm"
                    />
                 </div>
-                <div>
-                  <h2 className="text-3xl font-bold text-slate-800 mb-2">
-                    {agentType === 'energy' ? 'Energy Advisor' : 'City Services Assistant'}
+                <div className="space-y-2 max-w-lg">
+                  <h2 className="text-2xl font-bold text-slate-900">
+                    How can I help you with {agentType === 'energy' ? 'Energy' : 'City Services'}?
                   </h2>
-                  <p className="text-slate-500 max-w-md mx-auto text-lg">
+                  <p className="text-slate-500 text-base leading-relaxed">
                     {agentType === 'energy' 
-                      ? 'Analyze usage, compare rates, and forecast demand.' 
-                      : 'Ask about permits, events, and city services.'}
+                      ? 'I can analyze your SMUD usage, compare rates, check for solar rebates, and forecast your energy demand.' 
+                      : 'I can help with building permits, garbage schedules, city events, and general inquiries.'}
                   </p>
+                </div>
+                
+                {/* Suggestions Chips */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-lg pt-4">
+                   {(agentType === 'energy' 
+                      ? ["Compare SMUD rates", "Solar rebates available?", "Forecast next month's bill", "EV Charger locations"]
+                      : ["How do I get a permit?", "Garbage pickup schedule", "Upcoming city events", "Report a pothole"]
+                   ).map((suggestion, idx) => (
+                      <button 
+                        key={idx} 
+                        onClick={() => { setInput(suggestion); if(inputRef.current) inputRef.current.focus(); }}
+                        className="px-4 py-3 text-sm text-slate-600 bg-white border border-slate-200 rounded-xl hover:border-blue-300 hover:shadow-md transition-all text-left"
+                      >
+                        {suggestion}
+                      </button>
+                   ))}
                 </div>
               </motion.div>
             )}
@@ -376,100 +390,112 @@ export default function Home() {
               {messages.map((msg, index) => (
                 <motion.div
                   key={msg.id}
-                  initial={{ opacity: 0, y: 10 }}
+                  initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className={`flex gap-4 mb-6 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                  className={`flex gap-4 mb-8 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
-                  {/* Assistant Avatar */}
+                  {/* Assistant Avatar (Top Aligned) */}
                   {msg.role === 'assistant' && (
-                    <div className="w-8 h-8 rounded-full overflow-hidden border border-slate-200 flex-shrink-0 mt-1 shadow-sm">
-                      <Image 
-                        src={agentType === 'energy' ? "/static/energy_agent_ranchocordova.png" : "/static/customer_service_ranchocordova.png"}
-                        alt="AI" width={32} height={32} className="object-cover h-full w-full"
-                      />
+                    <div className="flex-shrink-0 mt-0">
+                      <div className="w-9 h-9 rounded-full overflow-hidden border border-slate-200 bg-white shadow-sm flex items-center justify-center">
+                         <Image 
+                           src={agentType === 'energy' ? "/static/energy_agent_ranchocordova.png" : "/static/customer_service_ranchocordova.png"}
+                           alt="AI" width={24} height={24} className="object-contain"
+                         />
+                      </div>
                     </div>
                   )}
 
-                  {/* Message Bubble */}
                   <div className={`flex flex-col max-w-[85%] md:max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                     
-                    <div className={`relative px-5 py-3.5 shadow-sm text-base leading-relaxed group ${
+                    {/* User Name / Bot Name */}
+                    <div className="flex items-center gap-2 mb-1.5 px-1">
+                      <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                        {msg.role === 'user' ? 'You' : 'Rancho AI'}
+                      </span>
+                      <span className="text-[10px] text-slate-300">•</span>
+                      <span className="text-[10px] text-slate-400">{formatTime(msg.timestamp)}</span>
+                    </div>
+
+                    {/* The Bubble */}
+                    <div className={`relative px-5 py-4 shadow-sm text-[15px] leading-7 group ${
                       msg.role === 'user' 
-                        ? 'bg-blue-600 text-white rounded-2xl rounded-tr-sm' 
-                        : 'bg-white border border-slate-200 text-slate-800 rounded-2xl rounded-tl-sm'
+                        ? 'bg-blue-600 text-white rounded-2xl rounded-tr-sm shadow-blue-600/10' 
+                        : 'bg-white border border-slate-200 text-slate-700 rounded-2xl rounded-tl-sm shadow-[0_2px_8px_rgba(0,0,0,0.04)]'
                     }`}>
                       
-                      {/* Message Content */}
-                      <div className={`prose max-w-none ${msg.role === 'user' ? 'prose-invert text-white' : 'prose-slate'}`}>
+                      {/* Markdown Content */}
+                      <div className={`prose max-w-none ${
+                        msg.role === 'user' 
+                          ? 'prose-invert text-white prose-p:leading-relaxed' 
+                          : 'prose-slate prose-p:text-slate-700 prose-headings:text-slate-800 prose-strong:text-slate-900 prose-strong:font-bold'
+                      }`}>
                         {msg.content}
                       </div>
 
                       {/* Charts */}
                       {msg.chartData && (
-                        <div className="mt-4 bg-slate-50 p-2 rounded-xl border border-slate-200">
-                           <ChartDisplay chartData={msg.chartData} />
+                        <div className="mt-5 mb-2 -mx-2 sm:mx-0">
+                          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                             <ChartDisplay chartData={msg.chartData} />
+                          </div>
                         </div>
                       )}
 
-                      {/* Copy Button (Hover) */}
+                      {/* Copy Action */}
                       {msg.role === 'assistant' && (
-                        <button 
-                          onClick={() => copyToClipboard(msg.content, msg.id)}
-                          className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-slate-100 text-slate-400 opacity-0 group-hover:opacity-100 transition-all hover:bg-slate-200 hover:text-slate-600"
-                          title="Copy text"
-                        >
-                          {copiedId === msg.id ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
-                        </button>
+                        <div className="absolute -bottom-6 left-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
+                           <button 
+                             onClick={() => copyToClipboard(msg.content, msg.id)}
+                             className="flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-slate-600 bg-slate-100/50 hover:bg-slate-100 px-2 py-1 rounded-md transition-colors"
+                           >
+                             {copiedId === msg.id ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
+                             {copiedId === msg.id ? 'Copied' : 'Copy'}
+                           </button>
+                        </div>
                       )}
                     </div>
-
-                    {/* Metadata: Sources & Timestamp */}
-                    <div className={`flex items-center gap-3 mt-1.5 px-1 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                      <span className="text-[11px] text-slate-400 font-medium">
-                        {formatTime(msg.timestamp)}
-                      </span>
-                      
-                      {msg.sources && msg.sources.length > 0 && (
-                        <div className="flex gap-2">
+                    
+                    {/* Sources */}
+                    {msg.sources && msg.sources.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-2 px-1">
                           {msg.sources.map((s, idx) => (
-                            <div key={idx} className="flex items-center gap-1 text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full border border-slate-200 max-w-[150px] truncate">
-                              <Info className="w-3 h-3" />
+                            <div key={idx} className="flex items-center gap-1.5 text-[11px] bg-white text-slate-500 px-2.5 py-1 rounded-full border border-slate-200 shadow-sm max-w-[200px] hover:border-blue-200 hover:text-blue-600 transition-colors cursor-default">
+                              <Info className="w-3 h-3 flex-shrink-0" />
                               <span className="truncate">{s.source}</span>
                             </div>
                           ))}
                         </div>
                       )}
-                    </div>
                   </div>
-
-                  {/* User Avatar */}
-                  {msg.role === 'user' && (
-                    <div className="w-8 h-8 rounded-full bg-blue-100 border border-blue-200 flex items-center justify-center text-blue-600 flex-shrink-0 mt-1">
-                      <UserIcon className="w-4 h-4" />
-                    </div>
-                  )}
                 </motion.div>
               ))}
             </AnimatePresence>
 
-            {/* Loading Indicator */}
+            {/* Thinking / Loading State */}
             {loading && (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-4 mb-6">
-                 <div className="w-8 h-8 rounded-full overflow-hidden border border-slate-200 flex-shrink-0 shadow-sm bg-white p-1">
-                    <div className="w-full h-full bg-slate-100 rounded-full animate-pulse" />
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-4 mb-8">
+                 <div className="w-9 h-9 rounded-full border border-slate-200 bg-white shadow-sm flex items-center justify-center">
+                    <Bot className="w-5 h-5 text-slate-400" />
                  </div>
-                 <div className="bg-white border border-slate-200 px-4 py-3 rounded-2xl rounded-tl-sm shadow-sm flex items-center gap-1.5">
-                    <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" />
-                    <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce delay-75" />
-                    <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce delay-150" />
+                 <div className="flex flex-col items-start">
+                    <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">
+                        Thinking
+                    </span>
+                    <div className="bg-white border border-slate-200 px-5 py-4 rounded-2xl rounded-tl-sm shadow-sm flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-[bounce_1s_infinite_0ms]" />
+                      <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-[bounce_1s_infinite_200ms]" />
+                      <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-[bounce_1s_infinite_400ms]" />
+                    </div>
                  </div>
               </motion.div>
             )}
 
-            {/* Error Message */}
+            {/* Error Toast */}
             {error && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex justify-center mb-6">
-                <div className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 text-sm font-medium rounded-full border border-red-200 shadow-sm">
+                <div className="flex items-center gap-2 px-4 py-2.5 bg-red-50 text-red-700 text-sm font-medium rounded-xl border border-red-100 shadow-sm">
                   <AlertCircle className="w-4 h-4" />
                   {error}
                 </div>
@@ -480,12 +506,22 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Input Footer */}
-        <div className="bg-white border-t border-slate-200 p-4 sm:p-6">
-          <div className="max-w-4xl mx-auto">
-            <div className={`relative flex items-end gap-2 bg-[#F8FAFC] rounded-2xl border border-slate-200 p-2 shadow-sm focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400 transition-all ${loading ? 'opacity-70 pointer-events-none' : ''}`}>
+        {/* Input Area - Clean & Floating */}
+        <div className="relative z-20 bg-[#F8FAFC] pb-6 pt-2 px-4">
+          <div className="max-w-3xl mx-auto">
+            {/* The Input Container */}
+            <div 
+              className={`
+                relative flex items-end gap-3 bg-white rounded-2xl p-3 
+                shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200 
+                focus-within:shadow-[0_8px_30px_rgb(59,130,246,0.1)] focus-within:border-blue-400/50 focus-within:ring-2 focus-within:ring-blue-50/50
+                transition-all duration-300 ease-out
+                ${loading ? 'opacity-70 pointer-events-none grayscale' : ''}
+              `}
+            >
               
-              <button className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors self-end mb-0.5">
+              {/* Attachment Icon (Visual Only) */}
+              <button className="p-2.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-colors self-end mb-0.5" title="Attach file">
                 <Paperclip className="w-5 h-5" />
               </button>
 
@@ -494,25 +530,27 @@ export default function Home() {
                 value={input}
                 onChange={adjustTextareaHeight}
                 onKeyDown={handleKeyDown}
-                placeholder={agentType === 'energy' ? "Ask about SMUD rates, consumption..." : "Ask about permits, garbage pickup..."}
-                className="w-full bg-transparent border-none text-slate-800 placeholder-slate-400 px-2 py-3 focus:ring-0 resize-none max-h-48 min-h-[44px] text-base leading-relaxed custom-scrollbar"
+                placeholder={agentType === 'energy' ? "Ask about SMUD usage, rates, or incentives..." : "Ask about permits, events, or services..."}
+                className="w-full bg-transparent border-none text-slate-800 placeholder-slate-400 px-1 py-3 focus:ring-0 resize-none max-h-40 min-h-[48px] text-[15px] leading-relaxed custom-scrollbar"
                 rows={1}
                 disabled={loading}
               />
               
+              {/* Send Button */}
               <button 
                 onClick={sendMessage}
                 disabled={!input.trim() || loading}
-                className={`p-2.5 rounded-xl transition-all self-end mb-0.5 flex-shrink-0 ${
+                className={`p-3 rounded-xl transition-all duration-200 self-end mb-0.5 shadow-sm ${
                   input.trim() 
-                    ? 'bg-blue-600 text-white shadow-md hover:bg-blue-700 hover:shadow-lg transform active:scale-95' 
-                    : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    ? 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-md hover:-translate-y-0.5 active:translate-y-0' 
+                    : 'bg-slate-100 text-slate-300 cursor-not-allowed'
                 }`}
               >
                 <Send className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-center text-xs text-slate-400 mt-3">
+            
+            <p className="text-center text-[10px] text-slate-400 mt-4 font-medium tracking-wide">
               Rancho AI can make mistakes. Please verify important information.
             </p>
           </div>
