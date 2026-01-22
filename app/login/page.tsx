@@ -1,3 +1,4 @@
+// app/login/page.tsx
 'use client';
 
 import { useState } from 'react';
@@ -17,12 +18,15 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
 
-    // Simulate network delay for realism
     await new Promise(resolve => setTimeout(resolve, 1500));
 
     if (username === 'admin' && password === 'rancho2024') {
-      localStorage.setItem('isAuthenticated', 'true');
-      router.push('/');
+      // CHANGED: Use sessionStorage instead of localStorage
+      // This clears when the browser is closed
+      sessionStorage.setItem('isAuthenticated', 'true');
+      
+      // Redirect to agent selection page instead of directly to chat
+      router.push('/select-agent');
     } else {
       setError('Invalid username or password');
       setLoading(false);
@@ -33,7 +37,6 @@ export default function LoginPage() {
     <div className="min-h-screen flex w-full bg-white selection:bg-blue-100 selection:text-blue-900">
       {/* Left Side - Login Form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8 lg:p-12 relative overflow-hidden">
-        {/* Background Decorative Element */}
         <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-50 to-white -z-10" />
         <Image
           src="/static/reactanglehalf.png"
@@ -45,19 +48,17 @@ export default function LoginPage() {
 
         <div className="w-full max-w-md space-y-10">
           <div className="text-center space-y-4">
-            {/* UPDATED LOGO: Wider container to prevent 'sticker' feel */}
             <div className="relative w-80 h-24 mx-auto">
               <Image
                 src="/static/images.png"
                 alt="City of Rancho Cordova"
                 fill
-                className="object-contain" // Keeps aspect ratio perfect
+                className="object-contain"
                 priority
               />
             </div>
             
             <div className="space-y-2">
-              {/* SERIF FONT: Simulating Tiempos Text */}
               <h1 className="text-4xl font-serif font-bold tracking-tight text-slate-900">
                 Welcome Back
               </h1>
@@ -80,7 +81,6 @@ export default function LoginPage() {
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 group-focus-within:text-blue-600 transition-colors">
                   <User className="h-5 w-5" />
                 </div>
-                {/* NARROW SANS FONT: Simulating Styrene B */}
                 <input
                   type="text"
                   required
@@ -95,7 +95,6 @@ export default function LoginPage() {
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 group-focus-within:text-blue-600 transition-colors">
                   <Lock className="h-5 w-5" />
                 </div>
-                {/* NARROW SANS FONT: Simulating Styrene B */}
                 <input
                   type="password"
                   required
@@ -142,7 +141,6 @@ export default function LoginPage() {
         
         <div className="absolute bottom-0 left-0 w-full p-16 text-white space-y-6">
           <div className="w-16 h-1 bg-blue-400 rounded-full" />
-          {/* SERIF FONT: Simulating Tiempos Text */}
           <h2 className="text-4xl font-serif font-bold max-w-lg leading-tight">
             Empowering the Community with Intelligent Insights
           </h2>
