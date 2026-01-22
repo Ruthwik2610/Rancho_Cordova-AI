@@ -115,34 +115,39 @@ export async function POST(req: NextRequest) {
     const rawContent = completion.choices[0]?.message?.content || 'I could not generate a response.';
     
     // 4. PARSE & CLEAN (IMPROVED)
+// 4. PARSE & CLEAN (PERMANENT FIX)
     let chartData = null;
     let finalText = rawContent;
 
-    // We check for the JSON signature in the response, REGARDLESS of the input trigger.
-    // This catches cases where the AI is "too smart" and generates a chart even if we missed the keyword.
-    const jsonPattern = /\{[\s\S]*?"type":\s*"chart"[\s\S]*?\}/;
-
-    if (jsonPattern.test(rawContent)) {
+    // Check if the response contains the specific chart indicator
+    // We check specifically for "type": "chart" to avoid false positives
+    if (rawContent.includes('"type": "chart"') || rawContent.includes('"type":"chart"')) {
       try {
-        // Strip markdown code blocks if present
+        // 1. Remove Markdown code blocks first
         let cleanContent = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
         
-        const jsonMatch = cleanContent.match(jsonPattern);
-        if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
+        // 2. ROBUST EXTRACTION: Find the FIRST '{' and the LAST '}'
+        // This handles nested objects correctly, unlike the previous regex
+        const firstBrace = cleanContent.indexOf('{');
+        const lastBrace = cleanContent.lastIndexOf('}');
+
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+           // Extract everything between the outer braces
+           const jsonString = cleanContent.substring(firstBrace, lastBrace + 1);
+           const parsed = JSON.parse(jsonString);
             
-            // Safety check: ensure it actually has data
-            if (parsed.data && parsed.chartType) {
-              chartData = parsed;
-              finalText = parsed.explanation || "Here is the visualization you requested.";
-            }
+           // 3. Validation
+           if (parsed.data && parsed.chartType) {
+             chartData = parsed;
+             // Use the explanation text if available
+             finalText = parsed.explanation || "Here is the visualization you requested.";
+           }
         }
       } catch (e) {
         console.warn('Chart Parse Error:', e);
-        // If parsing fails, it falls back to showing the text, which is better than crashing.
+        // If parsing fails, it gracefully falls back to displaying the raw text
       }
     }
-
     return NextResponse.json({
       response: finalText,
       chartData: chartData,
