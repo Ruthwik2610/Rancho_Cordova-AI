@@ -4,7 +4,7 @@ import Groq from 'groq-sdk';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30; // Increased for safety
+export const maxDuration = 30;
 
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY;
 const PINECONE_INDEX_NAME = process.env.PINECONE_INDEX_NAME || 'rancho-cordova';
@@ -54,7 +54,6 @@ export async function POST(req: NextRequest) {
       }
     } catch (error: any) {
       console.error('Embedding failed:', error);
-      // Fallback: Proceed without context if embedding fails, or return error
       return NextResponse.json({ error: "Search system temporary unavailable." }, { status: 500 });
     }
 
@@ -73,7 +72,7 @@ export async function POST(req: NextRequest) {
       .filter(match => (match.score || 0) > 0.4)
       .map(doc => doc.metadata?.text).join('\n\n');
 
-    // 3. SYSTEM PROMPT (UPDATED FOR STRUCTURE)
+    // 3. SYSTEM PROMPT (STRICT FORMATTING)
     const isChartRequest = /\b(forecast|trend|breakdown|volume|graph|chart|plot)\b/i.test(message);
 
     const chartInstruction = `
@@ -87,20 +86,27 @@ export async function POST(req: NextRequest) {
     }
     `;
 
-    // --- CHANGED SECTION START ---
     const systemPrompt = isChartRequest
       ? `You are a helper for Rancho Cordova. Context: ${context}. ${chartInstruction}`
       : `You are a knowledgeable assistant for Rancho Cordova. Context: ${context}.
          
          CRITICAL FORMATTING RULES:
-         1. STRUCTURE: Use Markdown to structure your answer.
-         2. LISTS: Always use bullet points (•) for steps, lists, or multiple options. Never write long paragraphs for lists.
-         3. EMPHASIS: Use **bold** for phone numbers, emails, addresses, and key terms.
-         4. BREVITY: Keep descriptions concise.
+         1. STRUCTURE: Use Markdown.
+         2. LISTS: Always insert a BLANK LINE before starting a list.
+         3. SPACING: Always insert a BLANK LINE between bullet points.
+         4. EMPHASIS: Use **bold** for phone numbers, emails, addresses, and key terms.
          5. TONE: Professional, helpful, and direct.
          
-         Do NOT generate JSON. Do NOT generate Charts.`;
-    // --- CHANGED SECTION END ---
+         Example of Good Output:
+         To report a pothole, you can:
+         
+         • Call Public Works at **(916) 851-8900**
+         
+         • Email **publicworks@cityofranchocordova.org**
+         
+         • Use the Mobile App
+         
+         Do NOT generate JSON unless asked for a chart.`;
 
     const groq = new Groq({ apiKey: GROQ_API_KEY });
     const completion = await groq.chat.completions.create({
