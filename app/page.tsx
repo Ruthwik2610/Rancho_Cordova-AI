@@ -114,7 +114,6 @@ export default function Home() {
     setLoading(true);
     setError(null);
 
-    // Reset textarea height
     if (inputRef.current) inputRef.current.style.height = 'auto';
 
     const fetchWithRetry = async (attempt = 1): Promise<any> => {
@@ -370,16 +369,25 @@ export default function Home() {
                         : 'bg-white text-slate-800 font-serif' 
                     }`}>
                       
-                      {/* --- MARKDOWN RENDERER --- */}
+                      {/* --- CLAUDE STYLE RENDERER --- */}
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
-                          p: ({node, ...props}) => <p className="mb-3 last:mb-0 leading-7" {...props} />,
-                          ul: ({node, ...props}) => <ul className="list-disc pl-4 mb-3 space-y-1" {...props} />,
-                          ol: ({node, ...props}) => <ol className="list-decimal pl-4 mb-3 space-y-1" {...props} />,
+                          // Spacing for Paragraphs: mb-5 (More breathing room)
+                          p: ({node, ...props}) => <p className="mb-5 last:mb-0 leading-7 text-slate-700" {...props} />,
+                          
+                          // Spacing for Lists: pl-6 (Indentation) + space-y-3 (Gaps between bullets)
+                          ul: ({node, ...props}) => <ul className="list-disc pl-6 mb-5 space-y-3 text-slate-700" {...props} />,
+                          ol: ({node, ...props}) => <ol className="list-decimal pl-6 mb-5 space-y-3 text-slate-700" {...props} />,
+                          
+                          // List Items
                           li: ({node, ...props}) => <li className="pl-1 leading-7" {...props} />,
-                          a: ({node, ...props}) => <a className="text-blue-600 hover:underline" target="_blank" {...props} />,
-                          strong: ({node, ...props}) => <strong className="font-bold text-slate-900" {...props} />,
+                          
+                          // Links
+                          a: ({node, ...props}) => <a className="text-blue-600 hover:text-blue-700 hover:underline font-medium transition-colors" target="_blank" {...props} />,
+                          
+                          // Bold Text
+                          strong: ({node, ...props}) => <strong className="font-semibold text-slate-900" {...props} />,
                         }}
                       >
                         {msg.content}
