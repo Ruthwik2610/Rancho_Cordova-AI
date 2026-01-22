@@ -52,20 +52,27 @@ export default function ChartDisplay({ chartData }: { chartData: ChartData }) {
         labels: {
           usePointStyle: true,
           boxWidth: 8,
-          font: { family: "'Inter', sans-serif", size: 11 }
+          font: { family: "'Inter', sans-serif", size: 11 },
+          padding: 15
         }
       },
       title: {
         display: true,
         text: chartData.title,
         font: { family: "'Inter', sans-serif", size: 14, weight: 'bold' },
-        color: '#1e293b', // slate-800
+        color: '#1e293b', 
         padding: { bottom: 20 }
       },
     },
+    layout: {
+      padding: {
+        bottom: 10
+      }
+    },
     scales: {
       y: {
-        grid: { color: '#f1f5f9' }, // slate-100
+        beginAtZero: true,
+        grid: { color: '#f1f5f9' }, 
         ticks: { font: { size: 10 } }
       },
       x: {
@@ -86,8 +93,10 @@ export default function ChartDisplay({ chartData }: { chartData: ChartData }) {
   };
 
   return (
-    <div className="w-full">
-      <div className="relative h-64 w-full">
+    // min-w-[250px] handles mobile, sm:min-w-[450px] forces width on desktop
+    // flex-col ensures the explanation sits nicely below the graph
+    <div className="w-full flex flex-col min-w-[250px] sm:min-w-[450px]">
+      <div className="relative h-80 w-full flex-grow">
         {renderChart()}
       </div>
       {chartData.explanation && (
