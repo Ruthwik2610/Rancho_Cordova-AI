@@ -72,18 +72,20 @@ export async function POST(req: NextRequest) {
       .filter(match => (match.score || 0) > 0.4)
       .map(doc => doc.metadata?.text).join('\n\n');
 
-    // 3. SYSTEM PROMPT (STRICT FORMATTING)
-    const isChartRequest = /\b(forecast|trend|breakdown|volume|graph|chart|plot)\b/i.test(message);
+    // 3. SYSTEM PROMPT (UPDATED & MORE ROBUST)
+    // Added: "break up", "distribution", "compare", "pie", "bar"
+    const isChartRequest = /\b(forecast|trend|breakdown|break\s*up|distribution|volume|graph|chart|plot|compare|comparison|pie|bar)\b/i.test(message);
 
     const chartInstruction = `
     IMPORTANT: The user issued a plotting command. You MUST respond with ONLY this JSON format:
     {
       "type": "chart",
-      "chartType": "line",
+      "chartType": "line", 
       "title": "Chart Title",
       "explanation": "Brief explanation.",
-      "data": { ... }
+      "data": { "labels": [...], "datasets": [...] }
     }
+    Valid chartTypes: "line", "bar", "pie", "doughnut".
     `;
 
     const systemPrompt = isChartRequest
@@ -96,15 +98,6 @@ export async function POST(req: NextRequest) {
          3. SPACING: Always insert a BLANK LINE between bullet points.
          4. EMPHASIS: Use **bold** for phone numbers, emails, addresses, and key terms.
          5. TONE: Professional, helpful, and direct.
-         
-         Example of Good Output:
-         To report a pothole, you can:
-         
-         • Call Public Works at **(916) 851-8900**
-         
-         • Email **publicworks@cityofranchocordova.org**
-         
-         • Use the Mobile App
          
          Do NOT generate JSON unless asked for a chart.`;
 
@@ -121,21 +114,32 @@ export async function POST(req: NextRequest) {
 
     const rawContent = completion.choices[0]?.message?.content || 'I could not generate a response.';
     
-    // 4. PARSE & CLEAN
+    // 4. PARSE & CLEAN (IMPROVED)
     let chartData = null;
     let finalText = rawContent;
 
-    if (isChartRequest) {
+    // We check for the JSON signature in the response, REGARDLESS of the input trigger.
+    // This catches cases where the AI is "too smart" and generates a chart even if we missed the keyword.
+    const jsonPattern = /\{[\s\S]*?"type":\s*"chart"[\s\S]*?\}/;
+
+    if (jsonPattern.test(rawContent)) {
       try {
+        // Strip markdown code blocks if present
         let cleanContent = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
-        const jsonMatch = cleanContent.match(/\{[\s\S]*?"type":\s*"chart"[\s\S]*?\}/);
+        
+        const jsonMatch = cleanContent.match(jsonPattern);
         if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
-            chartData = parsed;
-            finalText = parsed.explanation || "Here is the visualization.";
+            
+            // Safety check: ensure it actually has data
+            if (parsed.data && parsed.chartType) {
+              chartData = parsed;
+              finalText = parsed.explanation || "Here is the visualization you requested.";
+            }
         }
       } catch (e) {
-        console.warn('Chart Parse Error', e);
+        console.warn('Chart Parse Error:', e);
+        // If parsing fails, it falls back to showing the text, which is better than crashing.
       }
     }
 
