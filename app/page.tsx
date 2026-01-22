@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { 
   Send, LogOut, Paperclip, Menu, Plus, 
-  X, User as UserIcon, AlertCircle, Copy, Check, Info, Bot
+  X, AlertCircle, Copy, Check, Info, Bot
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ChartDisplay, { ChartData } from './components/ChartDisplay';
@@ -189,9 +189,9 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-screen bg-[#F8FAFC] text-slate-900 font-sans overflow-hidden">
+    <div className="flex h-screen bg-white text-slate-900 font-sans overflow-hidden">
       
-      {/* SIDEBAR */}
+      {/* SIDEBAR - Changed to Soft Gray (Slate-50) for contrast */}
       <AnimatePresence>
         {(sidebarOpen || mobileMenuOpen) && (
           <>
@@ -205,29 +205,30 @@ export default function Home() {
               animate={{ x: 0 }}
               exit={{ x: -280 }}
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              className={`fixed md:relative z-50 w-[280px] h-full bg-white border-r border-slate-200 flex flex-col shadow-2xl md:shadow-none`}
+              className={`fixed md:relative z-50 w-[280px] h-full bg-[#F8FAFC] border-r border-slate-200 flex flex-col shadow-2xl md:shadow-none`}
             >
               {/* Sidebar Header */}
-              <div className="h-16 flex items-center justify-between px-5 border-b border-slate-100">
+              <div className="h-16 flex items-center justify-between px-5 border-b border-slate-200/50">
                 <div className="relative w-36 h-10 opacity-100">
                   <Image 
                     src="/static/images.png"
                     alt="Logo" 
                     fill 
-                    className="object-contain object-left" 
+                    className="object-contain object-left mix-blend-multiply" 
                     priority
                   />
                 </div>
-                <button onClick={() => { setSidebarOpen(false); setMobileMenuOpen(false); }} className="md:hidden p-2 text-slate-400 hover:bg-slate-50 rounded-lg">
+                <button onClick={() => { setSidebarOpen(false); setMobileMenuOpen(false); }} className="md:hidden p-2 text-slate-400 hover:bg-slate-200 rounded-lg">
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
               {/* Sidebar Content */}
               <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+                {/* CHANGED: Button is now Blue instead of Black */}
                 <button 
                   onClick={handleNewChat}
-                  className="w-full flex items-center gap-3 px-4 py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl shadow-lg shadow-slate-900/10 hover:shadow-xl transition-all text-sm font-medium mb-8 group active:scale-95 duration-150"
+                  className="w-full flex items-center gap-3 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-md hover:shadow-lg transition-all text-sm font-medium mb-8 group active:scale-95 duration-150"
                 >
                   <Plus className="w-5 h-5" />
                   New Chat
@@ -242,7 +243,7 @@ export default function Home() {
                       <ul className="space-y-1">
                         {group.items.map((item, j) => (
                           <li key={j}>
-                            <button className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-slate-50 text-[13px] text-slate-600 font-medium truncate transition-colors">
+                            <button className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-white hover:shadow-sm text-[13px] text-slate-600 font-medium truncate transition-all border border-transparent hover:border-slate-100">
                               {item}
                             </button>
                           </li>
@@ -254,9 +255,9 @@ export default function Home() {
               </div>
 
               {/* Sidebar Footer */}
-              <div className="p-4 border-t border-slate-100 bg-white">
-                <div className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer group relative border border-transparent hover:border-slate-100">
-                  <div className="w-9 h-9 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 font-bold text-xs">
+              <div className="p-4 border-t border-slate-200/50 bg-[#F8FAFC]">
+                <div className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-white hover:shadow-sm transition-all cursor-pointer group relative border border-transparent hover:border-slate-100">
+                  <div className="w-9 h-9 rounded-full bg-slate-200 border border-slate-300 flex items-center justify-center text-slate-600 font-bold text-xs">
                     RC
                   </div>
                   <div className="flex-1 min-w-0">
@@ -277,11 +278,11 @@ export default function Home() {
         )}
       </AnimatePresence>
 
-      {/* MAIN CONTENT AREA */}
-      <main className="flex-1 flex flex-col h-full relative min-w-0 bg-[#F8FAFC]">
+      {/* MAIN CONTENT AREA - Changed to pure White for contrast */}
+      <main className="flex-1 flex flex-col h-full relative min-w-0 bg-white">
         
-        {/* Header - Fixed Height, Clear Separation */}
-        <header className="sticky top-0 z-20 w-full bg-white/80 backdrop-blur-xl border-b border-slate-200/80 shadow-[0_2px_4px_rgba(0,0,0,0.02)] h-16 flex items-center justify-between px-4 sm:px-8 transition-all">
+        {/* Header */}
+        <header className="sticky top-0 z-20 w-full bg-white/80 backdrop-blur-xl border-b border-slate-100 h-16 flex items-center justify-between px-4 sm:px-8 transition-all">
           <div className="flex items-center gap-4">
             {!sidebarOpen && (
               <button onClick={() => setSidebarOpen(true)} className="hidden md:flex p-2 -ml-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors">
@@ -291,24 +292,19 @@ export default function Home() {
             <button onClick={() => setMobileMenuOpen(true)} className="md:hidden p-2 -ml-2 text-slate-500 hover:bg-slate-100 rounded-lg">
               <Menu className="w-5 h-5" />
             </button>
-            <div className="md:hidden relative w-28 h-8">
-               <Image src="/static/images.png" alt="Logo" fill className="object-contain object-left" />
-            </div>
             
-            {/* Context Title (Desktop) */}
-            <div className="hidden md:block h-6 w-px bg-slate-200 mx-2"></div>
-            <h1 className="hidden md:block text-sm font-semibold text-slate-700">
-               {agentType === 'energy' ? 'Energy Advisor' : 'City Services'}
+            <h1 className="text-sm font-semibold text-slate-700 hidden sm:block">
+               {agentType === 'energy' ? 'Energy Advisor' : 'City Services Assistant'}
             </h1>
           </div>
 
           {/* Toggle Pills */}
-          <div className="flex bg-slate-100/80 p-1 rounded-lg border border-slate-200/50">
+          <div className="flex bg-slate-100 p-1 rounded-lg">
             <button
               onClick={() => handleAgentSwitch('customer')}
               className={`relative px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-2 ${
                 agentType === 'customer' 
-                  ? 'bg-white text-blue-700 shadow-sm ring-1 ring-black/5' 
+                  ? 'bg-white text-blue-700 shadow-sm' 
                   : 'text-slate-500 hover:text-slate-700'
               }`}
             >
@@ -321,7 +317,7 @@ export default function Home() {
               onClick={() => handleAgentSwitch('energy')}
               className={`relative px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-2 ${
                 agentType === 'energy' 
-                  ? 'bg-white text-emerald-700 shadow-sm ring-1 ring-black/5' 
+                  ? 'bg-white text-emerald-700 shadow-sm' 
                   : 'text-slate-500 hover:text-slate-700'
               }`}
             >
@@ -345,7 +341,7 @@ export default function Home() {
                 transition={{ duration: 0.4 }}
                 className="flex flex-col items-center justify-center mt-12 md:mt-20 text-center space-y-8"
               >
-                <div className={`relative w-20 h-20 rounded-2xl flex items-center justify-center shadow-xl shadow-slate-200 border-2 ${
+                <div className={`relative w-20 h-20 rounded-2xl flex items-center justify-center shadow-sm border ${
                   agentType === 'energy' 
                     ? 'bg-emerald-50 border-emerald-100' 
                     : 'bg-blue-50 border-blue-100'
@@ -358,7 +354,7 @@ export default function Home() {
                 </div>
                 <div className="space-y-2 max-w-lg">
                   <h2 className="text-2xl font-bold text-slate-900">
-                    How can I help you with {agentType === 'energy' ? 'Energy' : 'City Services'}?
+                    Hello, I'm your {agentType === 'energy' ? 'Energy Advisor' : 'City Assistant'}.
                   </h2>
                   <p className="text-slate-500 text-base leading-relaxed">
                     {agentType === 'energy' 
@@ -376,7 +372,7 @@ export default function Home() {
                       <button 
                         key={idx} 
                         onClick={() => { setInput(suggestion); if(inputRef.current) inputRef.current.focus(); }}
-                        className="px-4 py-3 text-sm text-slate-600 bg-white border border-slate-200 rounded-xl hover:border-blue-300 hover:shadow-md transition-all text-left"
+                        className="px-4 py-3 text-sm text-slate-600 bg-white border border-slate-100 shadow-sm rounded-xl hover:border-blue-300 hover:shadow-md transition-all text-left"
                       >
                         {suggestion}
                       </button>
@@ -395,10 +391,10 @@ export default function Home() {
                   transition={{ type: "spring", stiffness: 400, damping: 30 }}
                   className={`flex gap-4 mb-8 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
-                  {/* Assistant Avatar (Top Aligned) */}
+                  {/* Assistant Avatar */}
                   {msg.role === 'assistant' && (
                     <div className="flex-shrink-0 mt-0">
-                      <div className="w-9 h-9 rounded-full overflow-hidden border border-slate-200 bg-white shadow-sm flex items-center justify-center">
+                      <div className="w-9 h-9 rounded-full overflow-hidden border border-slate-100 bg-[#F8FAFC] flex items-center justify-center">
                          <Image 
                            src={agentType === 'energy' ? "/static/energy_agent_ranchocordova.png" : "/static/customer_service_ranchocordova.png"}
                            alt="AI" width={24} height={24} className="object-contain"
@@ -414,15 +410,13 @@ export default function Home() {
                       <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
                         {msg.role === 'user' ? 'You' : 'Rancho AI'}
                       </span>
-                      <span className="text-[10px] text-slate-300">•</span>
-                      <span className="text-[10px] text-slate-400">{formatTime(msg.timestamp)}</span>
                     </div>
 
                     {/* The Bubble */}
                     <div className={`relative px-5 py-4 shadow-sm text-[15px] leading-7 group ${
                       msg.role === 'user' 
                         ? 'bg-blue-600 text-white rounded-2xl rounded-tr-sm shadow-blue-600/10' 
-                        : 'bg-white border border-slate-200 text-slate-700 rounded-2xl rounded-tl-sm shadow-[0_2px_8px_rgba(0,0,0,0.04)]'
+                        : 'bg-[#F8FAFC] border border-slate-100 text-slate-700 rounded-2xl rounded-tl-sm'
                     }`}>
                       
                       {/* Markdown Content */}
@@ -437,7 +431,7 @@ export default function Home() {
                       {/* Charts */}
                       {msg.chartData && (
                         <div className="mt-5 mb-2 -mx-2 sm:mx-0">
-                          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
                              <ChartDisplay chartData={msg.chartData} />
                           </div>
                         </div>
@@ -448,7 +442,7 @@ export default function Home() {
                         <div className="absolute -bottom-6 left-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
                            <button 
                              onClick={() => copyToClipboard(msg.content, msg.id)}
-                             className="flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-slate-600 bg-slate-100/50 hover:bg-slate-100 px-2 py-1 rounded-md transition-colors"
+                             className="flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 px-2 py-1 rounded-md transition-colors"
                            >
                              {copiedId === msg.id ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
                              {copiedId === msg.id ? 'Copied' : 'Copy'}
@@ -461,7 +455,7 @@ export default function Home() {
                     {msg.sources && msg.sources.length > 0 && (
                         <div className="mt-3 flex flex-wrap gap-2 px-1">
                           {msg.sources.map((s, idx) => (
-                            <div key={idx} className="flex items-center gap-1.5 text-[11px] bg-white text-slate-500 px-2.5 py-1 rounded-full border border-slate-200 shadow-sm max-w-[200px] hover:border-blue-200 hover:text-blue-600 transition-colors cursor-default">
+                            <div key={idx} className="flex items-center gap-1.5 text-[11px] bg-slate-50 text-slate-500 px-2.5 py-1 rounded-full border border-slate-200 hover:border-blue-200 hover:text-blue-600 transition-colors cursor-default">
                               <Info className="w-3 h-3 flex-shrink-0" />
                               <span className="truncate">{s.source}</span>
                             </div>
@@ -476,17 +470,17 @@ export default function Home() {
             {/* Thinking / Loading State */}
             {loading && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-4 mb-8">
-                 <div className="w-9 h-9 rounded-full border border-slate-200 bg-white shadow-sm flex items-center justify-center">
+                 <div className="w-9 h-9 rounded-full border border-slate-100 bg-[#F8FAFC] flex items-center justify-center">
                     <Bot className="w-5 h-5 text-slate-400" />
                  </div>
                  <div className="flex flex-col items-start">
                     <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">
-                        Thinking
+                        Processing
                     </span>
-                    <div className="bg-white border border-slate-200 px-5 py-4 rounded-2xl rounded-tl-sm shadow-sm flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-[bounce_1s_infinite_0ms]" />
-                      <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-[bounce_1s_infinite_200ms]" />
-                      <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-[bounce_1s_infinite_400ms]" />
+                    <div className="bg-[#F8FAFC] border border-slate-100 px-5 py-4 rounded-2xl rounded-tl-sm flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-[bounce_1s_infinite_0ms]" />
+                      <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-[bounce_1s_infinite_200ms]" />
+                      <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-[bounce_1s_infinite_400ms]" />
                     </div>
                  </div>
               </motion.div>
@@ -507,21 +501,21 @@ export default function Home() {
         </div>
 
         {/* Input Area - Clean & Floating */}
-        <div className="relative z-20 bg-[#F8FAFC] pb-6 pt-2 px-4">
+        <div className="relative z-20 bg-white pb-6 pt-2 px-4">
           <div className="max-w-3xl mx-auto">
-            {/* The Input Container */}
+            {/* The Input Container - CHANGED: No border, softer shadow, light gray bg */}
             <div 
               className={`
-                relative flex items-end gap-3 bg-white rounded-2xl p-3 
-                shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200 
-                focus-within:shadow-[0_8px_30px_rgb(59,130,246,0.1)] focus-within:border-blue-400/50 focus-within:ring-2 focus-within:ring-blue-50/50
+                relative flex items-end gap-3 bg-[#F0F2F5] rounded-3xl p-3 
+                shadow-sm border-transparent 
+                focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100 focus-within:shadow-md
                 transition-all duration-300 ease-out
                 ${loading ? 'opacity-70 pointer-events-none grayscale' : ''}
               `}
             >
               
-              {/* Attachment Icon (Visual Only) */}
-              <button className="p-2.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-colors self-end mb-0.5" title="Attach file">
+              {/* Attachment Icon */}
+              <button className="p-2.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200/50 rounded-full transition-colors self-end" title="Attach file">
                 <Paperclip className="w-5 h-5" />
               </button>
 
@@ -531,7 +525,7 @@ export default function Home() {
                 onChange={adjustTextareaHeight}
                 onKeyDown={handleKeyDown}
                 placeholder={agentType === 'energy' ? "Ask about SMUD usage, rates, or incentives..." : "Ask about permits, events, or services..."}
-                className="w-full bg-transparent border-none text-slate-800 placeholder-slate-400 px-1 py-3 focus:ring-0 resize-none max-h-40 min-h-[48px] text-[15px] leading-relaxed custom-scrollbar"
+                className="w-full bg-transparent border-none text-slate-800 placeholder-slate-500 px-1 py-3 focus:ring-0 resize-none max-h-40 min-h-[48px] text-[15px] leading-relaxed custom-scrollbar"
                 rows={1}
                 disabled={loading}
               />
@@ -540,10 +534,10 @@ export default function Home() {
               <button 
                 onClick={sendMessage}
                 disabled={!input.trim() || loading}
-                className={`p-3 rounded-xl transition-all duration-200 self-end mb-0.5 shadow-sm ${
+                className={`p-3 rounded-full transition-all duration-200 self-end shadow-sm ${
                   input.trim() 
                     ? 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-md hover:-translate-y-0.5 active:translate-y-0' 
-                    : 'bg-slate-100 text-slate-300 cursor-not-allowed'
+                    : 'bg-slate-300 text-white cursor-not-allowed'
                 }`}
               >
                 <Send className="w-5 h-5" />
