@@ -9,13 +9,9 @@ import {
   X, AlertCircle, Copy, Check, Info, Bot, Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import ChartDisplay, { ChartData } from './components/ChartDisplay';
-
-// --- Fonts ---
-// In a real Next.js app, you would import these in layout.tsx. 
-// For this single-file demo, we'll use standard font stacks that mimic the look.
-// Message Font: "Georgia", "Cambria", "Times New Roman", Serif
-// UI Font: "Inter", system-ui, Sans-Serif
 
 // --- Types ---
 interface Source {
@@ -118,6 +114,7 @@ export default function Home() {
     setLoading(true);
     setError(null);
 
+    // Reset textarea height
     if (inputRef.current) inputRef.current.style.height = 'auto';
 
     const fetchWithRetry = async (attempt = 1): Promise<any> => {
@@ -187,7 +184,7 @@ export default function Home() {
   return (
     <div className="flex h-screen bg-[#F5F5F7] text-slate-900 font-sans overflow-hidden">
       
-      {/* SIDEBAR - Distinct Background Color */}
+      {/* SIDEBAR */}
       <AnimatePresence>
         {(sidebarOpen || mobileMenuOpen) && (
           <>
@@ -203,7 +200,6 @@ export default function Home() {
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
               className={`fixed md:relative z-50 w-[280px] h-full bg-[#EBEBEF] border-r border-slate-200/60 flex flex-col`}
             >
-              {/* Header */}
               <div className="h-16 flex items-center justify-between px-5">
                 <div className="relative w-32 h-8 opacity-80 mix-blend-multiply">
                   <Image 
@@ -219,7 +215,6 @@ export default function Home() {
                 </button>
               </div>
 
-              {/* Content */}
               <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
                 <button 
                   onClick={handleNewChat}
@@ -249,7 +244,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Footer */}
               <div className="p-4 border-t border-slate-200/50">
                 <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-white transition-all cursor-pointer group">
                   <div className="w-8 h-8 rounded-full bg-slate-300 flex items-center justify-center text-slate-600 font-bold text-xs">
@@ -271,10 +265,9 @@ export default function Home() {
         )}
       </AnimatePresence>
 
-      {/* MAIN CHAT AREA - White Paper Look */}
+      {/* MAIN CHAT AREA */}
       <main className="flex-1 flex flex-col h-full relative min-w-0 bg-white">
         
-        {/* Header - Minimalist */}
         <header className="sticky top-0 z-20 w-full bg-white/90 backdrop-blur-xl h-14 flex items-center justify-between px-4 transition-all">
           <div className="flex items-center gap-2">
             {!sidebarOpen && (
@@ -287,14 +280,13 @@ export default function Home() {
             </button>
             
             <div className="flex items-center gap-2 px-2 py-1 bg-slate-50 rounded-full border border-slate-100">
-               <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+               <div className={`w-2 h-2 rounded-full animate-pulse ${agentType === 'energy' ? 'bg-emerald-500' : 'bg-blue-500'}`} />
                <span className="text-xs font-medium text-slate-600">
                   {agentType === 'energy' ? 'Energy Advisor' : 'City Services'}
                </span>
             </div>
           </div>
 
-          {/* Toggle */}
           <div className="flex bg-[#F2F2F5] p-1 rounded-lg">
             <button
               onClick={() => handleAgentSwitch('customer')}
@@ -315,11 +307,9 @@ export default function Home() {
           </div>
         </header>
 
-        {/* Scrollable Area */}
         <div className="flex-1 overflow-y-auto w-full">
           <div className="max-w-2xl mx-auto px-4 py-8 pb-4">
             
-            {/* Empty State */}
             {messages.length === 0 && (
               <motion.div 
                 initial={{ opacity: 0, y: 10 }}
@@ -337,7 +327,6 @@ export default function Home() {
                   I can help you with {agentType === 'energy' ? 'SMUD rates, usage analytics, and rebate forecasting.' : 'building permits, city events, and general inquiries.'}
                 </p>
                 
-                {/* Suggestions */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-lg">
                    {(agentType === 'energy' 
                       ? ["Compare SMUD rates", "Solar rebates available?", "Forecast next month's bill", "EV Charger locations"]
@@ -355,7 +344,6 @@ export default function Home() {
               </motion.div>
             )}
 
-            {/* Chat Messages */}
             <AnimatePresence initial={false}>
               {messages.map((msg) => (
                 <motion.div
@@ -364,30 +352,38 @@ export default function Home() {
                   animate={{ opacity: 1, y: 0 }}
                   className={`flex gap-4 mb-8 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
-                  {/* Avatar */}
                   {msg.role === 'assistant' && (
                      <div className="w-7 h-7 mt-1.5 flex-shrink-0 rounded-lg bg-[#F2F2F5] flex items-center justify-center text-slate-500">
                         <Bot className="w-4 h-4" />
                      </div>
                   )}
 
-                  <div className={`flex flex-col max-w-[85%] sm:max-w-[80%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                  <div className={`flex flex-col max-w-[90%] sm:max-w-[85%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                     
-                    {/* Name */}
                     <span className="text-[11px] font-medium text-slate-400 mb-1 px-1">
                       {msg.role === 'user' ? 'You' : 'Rancho AI'}
                     </span>
 
-                    {/* Bubble */}
                     <div className={`relative px-5 py-3.5 text-[16px] leading-relaxed ${
                       msg.role === 'user' 
-                        ? 'bg-[#F2F2F5] text-slate-800 rounded-2xl rounded-tr-sm font-sans' // User: Sans-serif
-                        : 'bg-white text-slate-800 font-serif' // AI: Serif (Claude Style)
+                        ? 'bg-[#F2F2F5] text-slate-800 rounded-2xl rounded-tr-sm font-sans'
+                        : 'bg-white text-slate-800 font-serif' 
                     }`}>
                       
-                      <div className="prose prose-slate prose-p:leading-7 prose-li:marker:text-slate-300 max-w-none">
+                      {/* --- MARKDOWN RENDERER --- */}
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          p: ({node, ...props}) => <p className="mb-3 last:mb-0 leading-7" {...props} />,
+                          ul: ({node, ...props}) => <ul className="list-disc pl-4 mb-3 space-y-1" {...props} />,
+                          ol: ({node, ...props}) => <ol className="list-decimal pl-4 mb-3 space-y-1" {...props} />,
+                          li: ({node, ...props}) => <li className="pl-1 leading-7" {...props} />,
+                          a: ({node, ...props}) => <a className="text-blue-600 hover:underline" target="_blank" {...props} />,
+                          strong: ({node, ...props}) => <strong className="font-bold text-slate-900" {...props} />,
+                        }}
+                      >
                         {msg.content}
-                      </div>
+                      </ReactMarkdown>
 
                       {msg.chartData && (
                         <div className="mt-4 mb-2">
@@ -397,13 +393,12 @@ export default function Home() {
                         </div>
                       )}
 
-                      {/* Copy */}
                       {msg.role === 'assistant' && (
                         <button 
                           onClick={() => copyToClipboard(msg.content, msg.id)}
                           className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-slate-600 transition-colors font-sans"
                         >
-                           {copiedId === msg.id ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                           {copiedId === msg.id ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
                            {copiedId === msg.id ? 'Copied' : 'Copy'}
                         </button>
                       )}
@@ -413,7 +408,6 @@ export default function Home() {
               ))}
             </AnimatePresence>
 
-            {/* Loading */}
             {loading && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-4 mb-8">
                  <div className="w-7 h-7 mt-1 flex-shrink-0 rounded-lg bg-[#F2F2F5] flex items-center justify-center text-slate-500">
@@ -440,7 +434,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Input Footer - Seamless & Floating */}
+        {/* Seamless Input Footer */}
         <div className="w-full bg-white px-4 pb-6 pt-2">
            <div className="max-w-2xl mx-auto">
               <div 
@@ -459,7 +453,7 @@ export default function Home() {
                     className="w-full bg-transparent border-none text-slate-800 placeholder-slate-400 px-4 py-4 focus:ring-0 resize-none max-h-48 min-h-[56px] text-[15px] leading-relaxed custom-scrollbar outline-none"
                     rows={1}
                     disabled={loading}
-                    style={{ outline: 'none', boxShadow: 'none' }} // Force remove default outline
+                    style={{ outline: 'none', boxShadow: 'none' }}
                  />
                  
                  <div className="flex justify-between items-center px-2 pb-2">
