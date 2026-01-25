@@ -369,14 +369,14 @@ export default function Home() {
                         : 'bg-white text-slate-800 font-serif' 
                     }`}>
                       
-                      {/* --- CLAUDE STYLE RENDERER --- */}
+                     
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
-                          // Spacing for Paragraphs: mb-5 (More breathing room)
+                          
                           p: ({node, ...props}) => <p className="mb-5 last:mb-0 leading-7 text-slate-700" {...props} />,
                           
-                          // Spacing for Lists: pl-6 (Indentation) + space-y-3 (Gaps between bullets)
+                          
                           ul: ({node, ...props}) => <ul className="list-disc pl-6 mb-5 space-y-3 text-slate-700" {...props} />,
                           ol: ({node, ...props}) => <ol className="list-decimal pl-6 mb-5 space-y-3 text-slate-700" {...props} />,
                           
