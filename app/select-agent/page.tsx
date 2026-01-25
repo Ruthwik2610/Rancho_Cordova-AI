@@ -61,10 +61,10 @@ export default function SelectAgentPage() {
           className="text-center mb-16"
         >
           <h1 className="text-5xl font-bold text-slate-900 mb-4">
-            Choose Your AI Assistant
+            Choose Your AI Agent
           </h1>
           <p className="text-xl text-slate-600 max-w-2xl mx-auto">
-            Select the specialized assistant that best fits your needs. Each is trained to help you with specific services.
+            Select the specialized Agent that best fits your needs. Each is trained to help you with specific services.
           </p>
         </motion.div>
 
@@ -93,7 +93,7 @@ export default function SelectAgentPage() {
 
               {/* Title */}
               <h2 className="text-2xl font-bold text-slate-900 mb-3 flex items-center gap-2">
-                City Services Assistant
+                City Services Agent
                 <ArrowRight className="w-5 h-5 text-blue-600 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
               </h2>
 
@@ -132,7 +132,7 @@ export default function SelectAgentPage() {
 
               {/* CTA Button */}
               <button className="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 group-hover:shadow-lg">
-                Start Chatting
+                Start Interaction with Agent
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </button>
             </div>
@@ -162,7 +162,7 @@ export default function SelectAgentPage() {
 
               {/* Title */}
               <h2 className="text-2xl font-bold text-slate-900 mb-3 flex items-center gap-2">
-                Energy Advisor
+                Energy Advisor Agent
                 <ArrowRight className="w-5 h-5 text-emerald-600 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
               </h2>
 
@@ -201,7 +201,7 @@ export default function SelectAgentPage() {
 
               {/* CTA Button */}
               <button className="w-full bg-emerald-600 text-white py-3 rounded-xl font-semibold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2 group-hover:shadow-lg">
-                Start Chatting
+                Start Interaction with Agent
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </button>
             </div>
@@ -222,7 +222,7 @@ export default function SelectAgentPage() {
             <div>
               <h3 className="font-semibold text-slate-900 mb-1">Need Help Choosing?</h3>
               <p className="text-sm text-slate-600 leading-relaxed">
-                You can switch between assistants at any time using the toggle in the chat interface. Both agents have access to comprehensive city data and can help with general inquiries.
+                You can switch between Agents at any time using the toggle in the chat interface. Both agents have access to comprehensive city data and can help with general inquiries.
               </p>
             </div>
           </div>
@@ -230,4 +230,5 @@ export default function SelectAgentPage() {
       </main>
     </div>
   );
+
 }
