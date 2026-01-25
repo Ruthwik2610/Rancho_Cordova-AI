@@ -199,13 +199,14 @@ export default function Home() {
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
               className={`fixed md:relative z-50 w-[280px] h-full bg-[#EBEBEF] border-r border-slate-200/60 flex flex-col`}
             >
-              <div className="h-16 flex items-center justify-between px-5">
-                <div className="relative w-32 h-8 opacity-80 mix-blend-multiply">
+              {/* UPDATED HEADER: Centered & Wider Logo */}
+              <div className="h-16 flex items-center justify-between md:justify-center px-5">
+                <div className="relative w-60 h-10 opacity-80 mix-blend-multiply">
                   <Image 
                     src="/static/images.png"
                     alt="Logo" 
                     fill 
-                    className="object-contain object-center"
+                    className="object-contain object-center" 
                     priority
                   />
                 </div>
