@@ -113,21 +113,18 @@ export async function POST(req: NextRequest) {
     });
 
     const rawContent = completion.choices[0]?.message?.content || 'I could not generate a response.';
-    
-    // 4. PARSE & CLEAN (IMPROVED)
-// 4. PARSE & CLEAN (PERMANENT FIX)
+
+// 4. PARSE & CLEAN
     let chartData = null;
     let finalText = rawContent;
 
     // Check if the response contains the specific chart indicator
-    // We check specifically for "type": "chart" to avoid false positives
     if (rawContent.includes('"type": "chart"') || rawContent.includes('"type":"chart"')) {
       try {
         // 1. Remove Markdown code blocks first
-        let cleanContent = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
-        
+        let cleanContent = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();     
         // 2. ROBUST EXTRACTION: Find the FIRST '{' and the LAST '}'
-        // This handles nested objects correctly, unlike the previous regex
+        
         const firstBrace = cleanContent.indexOf('{');
         const lastBrace = cleanContent.lastIndexOf('}');
 
@@ -139,13 +136,13 @@ export async function POST(req: NextRequest) {
            // 3. Validation
            if (parsed.data && parsed.chartType) {
              chartData = parsed;
-             // Use the explanation text if available
+             
              finalText = parsed.explanation || "Here is the visualization you requested.";
            }
         }
       } catch (e) {
         console.warn('Chart Parse Error:', e);
-        // If parsing fails, it gracefully falls back to displaying the raw text
+       
       }
     }
     return NextResponse.json({
