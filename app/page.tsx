@@ -205,7 +205,7 @@ export default function Home() {
                     src="/static/images.png"
                     alt="Logo" 
                     fill 
-                    className="object-contain object-left" 
+                    className="object-contain object-center"
                     priority
                   />
                 </div>
