@@ -72,16 +72,16 @@ export async function POST(req: NextRequest) {
       .filter(match => (match.score || 0) > 0.4)
       .map(doc => doc.metadata?.text).join('\n\n');
 
-    // 3. SYSTEM PROMPT (UPDATED FOR SCOPE RESTRICTION)
+    // 3. SYSTEM PROMPT (UPDATED FOR STRICT CONTEXT RELIANCE)
     const isChartRequest = /\b(forecast|trend|breakdown|break\s*up|distribution|volume|graph|chart|plot|compare|comparison|pie|bar)\b/i.test(message);
 
-    // Define the required fallback message
+    // Strict Fallback Message
     const FALLBACK_MESSAGE = "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope.";
 
     const chartInstruction = `
     The user's query matched a visualization keyword.
     
-    IF the answer involves numerical data, trends, or comparisons:
+    IF the answer involves numerical data, trends, or comparisons FOUND IN THE CONTEXT:
     - You MUST respond with ONLY the following JSON format.
     - Do not include any conversational text outside the JSON.
     
@@ -103,28 +103,28 @@ export async function POST(req: NextRequest) {
     const systemPrompt = isChartRequest
       ? `You are a helper for Rancho Cordova. Context: ${context}. 
          
-         SCOPE INSTRUCTION:
-         Check if the user's question is related to the City of Rancho Cordova or SMUD (Sacramento Municipal Utility District) AND if the answer is present in the Context.
-         If NO: Respond EXACTLY with "${FALLBACK_MESSAGE}" and do not generate a chart.
-         If YES: Proceed with the chart generation instructions below.
-         
+         STRICT DATA RULE:
+         1. Look for the data requested in the Context above.
+         2. IF the specific data points needed for the chart are NOT present in the Context:
+            You MUST respond EXACTLY with: "${FALLBACK_MESSAGE}"
+            Do NOT generate a chart with made-up numbers.
+         3. IF the data IS present, proceed with the chart generation:
          ${chartInstruction}`
       : `You are a knowledgeable assistant for Rancho Cordova. Context: ${context}.
          
-         CRITICAL SCOPE INSTRUCTIONS:
-         1. You are strictly limited to answering questions related to the **City of Rancho Cordova** and **SMUD** (Sacramento Municipal Utility District).
-         2. You must base your answers **SOLELY** on the provided Context.
-         3. IF the user's question is unrelated to these topics, OR if the answer cannot be found in the Context:
+         STRICT ANTI-HALLUCINATION RULES:
+         1. Your knowledge is strictly limited to the provided Context.
+         2. Verify if the answer to the user's question exists explicitly within the Context.
+         3. IF the answer is NOT in the Context, or if the question is not about Rancho Cordova/SMUD:
             You MUST output EXACTLY: "${FALLBACK_MESSAGE}"
+         4. Do not use outside knowledge. Do not make up facts.
          
-         CRITICAL FORMATTING RULES (Only if answering within scope):
+         FORMATTING RULES (Only if answering from Context):
          1. STRUCTURE: Use Markdown.
          2. LISTS: Always insert a BLANK LINE before starting a list.
          3. SPACING: Always insert a BLANK LINE between bullet points.
          4. EMPHASIS: Use **bold** for phone numbers, emails, addresses, and key terms.
-         5. TONE: Professional, helpful, and direct.
-         
-         Do NOT generate JSON unless asked for a chart.`;
+         5. TONE: Professional, helpful, and direct.`;
 
     const groq = new Groq({ apiKey: GROQ_API_KEY });
     const completion = await groq.chat.completions.create({
@@ -133,7 +133,7 @@ export async function POST(req: NextRequest) {
         { role: 'user', content: message }
       ],
       model: 'llama-3.3-70b-versatile',
-      temperature: 0.3,
+      temperature: 0.1, // Lowered temperature to reduce hallucination
       max_tokens: 1024,
     });
 
