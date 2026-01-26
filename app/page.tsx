@@ -328,8 +328,8 @@ export default function Home() {
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-lg">
                    {(agentType === 'energy' 
-                      ? ["Compare SMUD rates", "Solar rebates available?", "Forecast next month's bill", "EV Charger locations"]
-                      : ["How do I get a permit?", "Garbage pickup schedule", "Upcoming city events", "Report a pothole"]
+                      ? ["Compare SMUD rates", "Solar rebates available?", "Forecast next month's bill", "Incentives for EV Chargers"]
+                      : ["How do I get a permit?", "Check status of ticket CL0092", "Contact Animal Services", "Report a pothole"]
                    ).map((suggestion, idx) => (
                       <button 
                         key={idx} 
