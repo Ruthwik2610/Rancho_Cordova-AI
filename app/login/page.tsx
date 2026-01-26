@@ -33,16 +33,16 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen w-full flex bg-white">
       
-      {/* --- LEFT SIDE: THE BORDERED BUBBLE FORM --- */}
+     
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6">
         
-        {/* THE BUBBLE CARD (No Background, Just Border) */}
+     
         <div className="
           w-full max-w-[380px]
-          bg-transparent             /* No background color */
-          p-8                        /* Spacing */
-          rounded-[2.5rem]           /* Bubble Shape */
-          border-2 border-slate-300  /* The Silver Border */
+          bg-transparent            
+          p-8                       
+          rounded-[2.5rem]          
+          border-2 border-slate-300  
           flex flex-col items-center gap-6
         ">
           
@@ -124,7 +124,7 @@ export default function LoginPage() {
 
           {/* Footer Text */}
           <div className="text-center text-[10px] text-slate-400 font-sans">
-            <p>Demo: <strong>admin</strong> / <strong>rancho2024</strong></p>
+            
           </div>
         </div>
       </div>
@@ -132,7 +132,7 @@ export default function LoginPage() {
       {/* --- RIGHT SIDE: HERO IMAGE --- */}
       <div className="hidden lg:block lg:w-1/2 relative bg-slate-900">
         <Image 
-          src="/static/image_a8ecc8.jpg" 
+          src="/static/login_1.jpg" 
           alt="Rancho Cordova Landscape" 
           fill
           className="object-cover opacity-90"
