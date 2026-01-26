@@ -77,7 +77,17 @@ export async function POST(req: NextRequest) {
     const isChartRequest = /\b(forecast|trend|breakdown|break\s*up|distribution|volume|graph|chart|plot|compare|comparison|pie|bar)\b/i.test(message);
 
     const chartInstruction = `
-    IMPORTANT: The user issued a plotting command. You MUST respond with ONLY this JSON format:
+    The user's query matched a visualization keyword.
+    
+    IF the answer involves numerical data, trends, or comparisons:
+    - You MUST respond with ONLY the following JSON format.
+    - Do not include any conversational text outside the JSON.
+    
+    IF the answer is a text list, location info, or qualitative description (e.g. "breakdown of departments"):
+    - Ignore the JSON format.
+    - Respond with a normal text answer using Markdown.
+
+    JSON Format (for numerical data only):
     {
       "type": "chart",
       "chartType": "line", 
