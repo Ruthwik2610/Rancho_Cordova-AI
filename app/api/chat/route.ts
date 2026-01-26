@@ -11,10 +11,14 @@ const PINECONE_INDEX_NAME = process.env.PINECONE_INDEX_NAME || 'rancho-cordova';
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
 
+const FALLBACK_MESSAGE = "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope.";
+
 export async function POST(req: NextRequest) {
   try {
+    // 0. CHECK CONFIG
     if (!PINECONE_API_KEY || !GROQ_API_KEY || !HUGGINGFACE_API_KEY) {
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+      console.error("Missing API Keys");
+      return NextResponse.json({ response: FALLBACK_MESSAGE }, { status: 500 });
     }
 
     const { message, agentType = 'customer' } = await req.json();
@@ -47,14 +51,12 @@ export async function POST(req: NextRequest) {
       if (!response.ok) throw new Error(`HF API Error: ${response.status}`);
 
       const result = await response.json();
-      if (Array.isArray(result)) {
-         queryVector = (Array.isArray(result[0]) ? result[0] : result) as number[];
-      } else {
-        throw new Error("Invalid embedding format");
-      }
-    } catch (error: any) {
+      queryVector = (Array.isArray(result) && Array.isArray(result[0])) ? result[0] : result;
+      
+    } catch (error) {
       console.error('Embedding failed:', error);
-      return NextResponse.json({ error: "Search system temporary unavailable." }, { status: 500 });
+      // Return fallback if search fails
+      return NextResponse.json({ response: FALLBACK_MESSAGE });
     }
 
     // 2. QUERY PINECONE
@@ -62,32 +64,36 @@ export async function POST(req: NextRequest) {
     const index = pc.index(PINECONE_INDEX_NAME);
 
     const queryResponse = await index.query({
-      vector: queryVector,
+      vector: queryVector as number[],
       topK: 5,
       includeMetadata: true,
       filter: { agent: { $eq: agentType } }
     });
 
-    const context = queryResponse.matches
-      .filter(match => (match.score || 0) > 0.4)
-      .map(doc => doc.metadata?.text).join('\n\n');
+    // 3. CHECK CONTEXT (Instant Fallback if no data found)
+    const matches = queryResponse.matches || [];
+    if (matches.length === 0) {
+      return NextResponse.json({ response: FALLBACK_MESSAGE, sources: [] });
+    }
 
-    // 3. SYSTEM PROMPT (SMART & STRICT)
+    const context = matches
+      .map(doc => doc.metadata?.text)
+      .filter(text => text) // filter out undefined/null
+      .join('\n\n');
+
+    if (!context || context.trim().length === 0) {
+        return NextResponse.json({ response: FALLBACK_MESSAGE, sources: [] });
+    }
+
+    // 4. SYSTEM PROMPT (BARRIER REMOVED)
+    // No strict rules, just "Helpful Assistant" + "Chart Instructions"
     const isChartRequest = /\b(forecast|trend|breakdown|break\s*up|distribution|volume|graph|chart|plot|compare|comparison|pie|bar)\b/i.test(message);
 
-    const FALLBACK_MESSAGE = "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope.";
-
     const chartInstruction = `
-    The user's query matched a visualization keyword.
+    IF the user asks for a visualization (chart, graph, breakdown) AND the data is present in the context:
+    - Respond with ONLY the following JSON format.
+    - Do not add conversational text.
     
-    IF the answer involves numerical data, trends, or comparisons FOUND IN THE CONTEXT:
-    - You MUST respond with ONLY the following JSON format.
-    - Do not include any conversational text outside the JSON.
-    
-    IF the answer is a text list, location info, or qualitative description:
-    - Ignore the JSON format.
-    - Respond with a normal text answer using Markdown.
-
     JSON Format:
     {
       "type": "chart",
@@ -96,34 +102,23 @@ export async function POST(req: NextRequest) {
       "explanation": "Brief explanation.",
       "data": { "labels": [...], "datasets": [...] }
     }
+    Valid chartTypes: "line", "bar", "pie", "doughnut".
     `;
 
-    // --- KEY UPDATE: LOGIC INSTEAD OF DICTIONARY ---
-    // We replace the hardcoded dictionary with specific "Rules of Engagement"
-    const systemPrompt = isChartRequest
-      ? `You are a helper for Rancho Cordova. Context: ${context}. 
-         
-         STRICT DATA RULE:
-         1. Look for the data requested in the Context above.
-         2. IF the specific data points are NOT present: Respond EXACTLY with "${FALLBACK_MESSAGE}".
-         3. IF present, generate the chart JSON.
-         ${chartInstruction}`
-      : `You are a knowledgeable assistant for Rancho Cordova and SMUD.
-      
-         CONTEXT:
-         ${context}
-         
-         STRICT RULES OF ENGAGEMENT:
-         1. **NO OUTSIDE KNOWLEDGE:** Do not answer questions using your general training data (e.g., "Who is the US President?", "What is Python code?", "World History"). If the answer is not physically present in the Context above, you MUST respond with: "${FALLBACK_MESSAGE}".
-         
-         2. **INTELLIGENT MATCHING:** You ARE allowed to infer that user terms refer to the provided data fields if the values match.
-            - Example: If user asks for "Ticket CL0092" and context has "CallID: CL0092", this IS a match. Answer it.
-            - Example: If user asks for "Bill" and context has "Cost" or "Rate", this IS a match.
-            
-         3. **VERIFICATION:** Before answering, ask yourself: "Is this information in the text block above?"
-            - If YES: Answer using Markdown (bold keys, lists).
-            - If NO: Output the Fallback Message.`;
+    const systemPrompt = `You are a helpful AI assistant for the City of Rancho Cordova and SMUD.
+    
+    CONTEXT DATA:
+    ${context}
 
+    INSTRUCTIONS:
+    1. Answer the user's question using the Context Data provided above.
+    2. If the user refers to "Ticket", "Case", or "Issue", check for "CallID" or similar fields in the data.
+    3. Be professional, direct, and helpful.
+    4. Use Markdown for formatting (bold keys, lists).
+    
+    ${isChartRequest ? chartInstruction : ''}`;
+
+    // 5. LLM GENERATION
     const groq = new Groq({ apiKey: GROQ_API_KEY });
     const completion = await groq.chat.completions.create({
       messages: [
@@ -131,16 +126,17 @@ export async function POST(req: NextRequest) {
         { role: 'user', content: message }
       ],
       model: 'llama-3.3-70b-versatile',
-      temperature: 0.1, 
+      temperature: 0.3, 
       max_tokens: 1024,
     });
 
-    const rawContent = completion.choices[0]?.message?.content || 'I could not generate a response.';
+    const rawContent = completion.choices[0]?.message?.content || FALLBACK_MESSAGE;
 
-    // 4. PARSE & CLEAN
+    // 6. PARSE RESPONSE
     let chartData = null;
     let finalText = rawContent;
 
+    // Attempt to extract chart JSON if present
     if (rawContent.includes('"type": "chart"') || rawContent.includes('"type":"chart"')) {
       try {
         let cleanContent = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();     
@@ -156,18 +152,20 @@ export async function POST(req: NextRequest) {
            }
         }
       } catch (e) {
-        console.warn('Chart Parse Error:', e);
+        console.warn('Chart Parse Error', e);
+        // If JSON fails, just return the text, no big deal
       }
     }
     
     return NextResponse.json({
       response: finalText,
       chartData: chartData,
-      sources: queryResponse.matches.slice(0, 3).map(d => ({ source: d.metadata?.source, score: d.score }))
+      sources: matches.slice(0, 3).map(d => ({ source: d.metadata?.source, score: d.score }))
     });
 
   } catch (error: any) {
-    console.error('API Route Error:', error);
-    return NextResponse.json({ error: "An internal system error occurred." }, { status: 500 });
+    console.error('API Route Critical Error:', error);
+    // 7. GLOBAL ERROR FALLBACK
+    return NextResponse.json({ response: FALLBACK_MESSAGE }, { status: 200 }); // Return 200 so UI displays message cleanly
   }
 }
