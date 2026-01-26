@@ -41,14 +41,14 @@ export default function LoginPage() {
           bg-transparent
           p-10
           rounded-[3rem]
-          border-1 border-slate-200
+          border-2 border-slate-200
           flex flex-col items-center gap-6
         ">
           
           {/* Logo */}
           <div className="relative w-60 h-16">
             <Image 
-              src="/static/images.png" 
+              src="/static/images.jpg" 
               alt="Logo" 
               fill 
               className="object-contain" 
