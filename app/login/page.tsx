@@ -48,7 +48,7 @@ export default function LoginPage() {
           {/* Logo */}
           <div className="relative w-60 h-16">
             <Image 
-              src="/static/images.jpg" 
+              src="/static/images.png" 
               alt="Logo" 
               fill 
               className="object-contain" 
@@ -126,13 +126,13 @@ export default function LoginPage() {
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
               Contact
             </p>
-            <p className="text-base font-bold text-slate-600">
+            <p className="text-base  text-black-400">
               Jothi Periasamy
             </p>
-            <p className="text-sm text-slate-400 font-medium">
+            <p className="text-sm text-black-400 font-medium">
               Chief Architect 
             </p>
-            <p className="text-sm text-slate-400 font-semibold">
+            <p className="text-sm text-black-400 font-semibold">
               LLM at Scale.AI
             </p>
           </div>
