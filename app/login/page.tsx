@@ -46,15 +46,16 @@ export default function LoginPage() {
         ">
           
           {/* Logo */}
-          <div className="relative w-120 h-32">
-            <Image 
-              src="/static/images.png" 
-              alt="Logo" 
-              fill 
-              className="object-contain" 
-              priority
-            />
-          </div>
+{/* Increased height from h-10 to h-16 */}
+    <div className="relative w-64 h-16 opacity-80 mix-blend-multiply">
+  <Image 
+    src="/static/images.png"
+    alt="Logo" 
+    fill 
+    className="object-contain object-center" 
+    priority
+  />
+</div>
 
           {/* Title */}
           <div className="text-center space-y-2">
