@@ -130,7 +130,7 @@ export default function LoginPage() {
               Jothi Periasamy
             </p>
             <p className="text-sm text-slate-600 font-medium">
-              Chief Architect
+              Chief Architect LLM at Scale.AI
             </p>
             <p className="text-sm text-blue-600 font-semibold">
               LLM at Scale.AI
@@ -143,7 +143,7 @@ export default function LoginPage() {
       {/* --- RIGHT SIDE: HERO IMAGE --- */}
       <div className="hidden lg:block lg:w-1/2 relative bg-slate-900">
         <Image 
-          src="/static/image_a8ecc8.jpg" 
+          src="/static/login_1.jpg" 
           alt="Rancho Cordova Landscape" 
           fill
           className="object-cover opacity-90"
