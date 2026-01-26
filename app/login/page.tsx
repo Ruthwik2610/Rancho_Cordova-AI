@@ -41,7 +41,7 @@ export default function LoginPage() {
           bg-transparent
           p-10
           rounded-[3rem]
-          border-2 border-slate-300
+          border-1 border-slate-200
           flex flex-col items-center gap-6
         ">
           
@@ -58,8 +58,8 @@ export default function LoginPage() {
 
           {/* Title */}
           <div className="text-center space-y-2">
-            <h1 className="text-3xl font-bold text-slate-800">Welcome Back</h1>
-            <p className="text-sm text-slate-500 font-medium">Please sign in to dashboard</p>
+            <h1 className="text-3xl font-bold text-slate-800">Welcome to City Services</h1>
+            <p className="text-sm text-slate-500 font-medium">24/7 AI Assistance for Rancho Cordova Residents</p>
           </div>
 
           {/* Form */}
@@ -126,13 +126,13 @@ export default function LoginPage() {
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
               Contact
             </p>
-            <p className="text-base font-bold text-slate-800">
+            <p className="text-base font-bold text-slate-600">
               Jothi Periasamy
             </p>
-            <p className="text-sm text-slate-600 font-medium">
+            <p className="text-sm text-slate-400 font-medium">
               Chief Architect 
             </p>
-            <p className="text-sm text-blue-600 font-semibold">
+            <p className="text-sm text-slate-400 font-semibold">
               LLM at Scale.AI
             </p>
           </div>
