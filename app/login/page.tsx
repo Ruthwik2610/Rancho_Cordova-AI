@@ -46,7 +46,7 @@ export default function LoginPage() {
         ">
           
           {/* Logo */}
-          <div className="relative w-60 h-16">
+          <div className="relative w-120 h-32">
             <Image 
               src="/static/images.png" 
               alt="Logo" 
