@@ -15,9 +15,7 @@ const FALLBACK_MESSAGE = "I am sorry, I have access to only publicly available C
 
 export async function POST(req: NextRequest) {
   try {
-    // 0. CHECK CONFIG
     if (!PINECONE_API_KEY || !GROQ_API_KEY || !HUGGINGFACE_API_KEY) {
-      console.error("Missing API Keys");
       return NextResponse.json({ response: FALLBACK_MESSAGE }, { status: 500 });
     }
 
@@ -52,25 +50,23 @@ export async function POST(req: NextRequest) {
 
       const result = await response.json();
       queryVector = (Array.isArray(result) && Array.isArray(result[0])) ? result[0] : result;
-      
     } catch (error) {
       console.error('Embedding failed:', error);
-      // Return fallback if search fails
       return NextResponse.json({ response: FALLBACK_MESSAGE });
     }
 
-    // 2. QUERY PINECONE
+    // 2. QUERY PINECONE (FIX: Increased topK to 10)
+    // Increasing topK ensures we catch the 'Benchmarks' file even if 'Rebates' scores higher.
     const pc = new Pinecone({ apiKey: PINECONE_API_KEY });
     const index = pc.index(PINECONE_INDEX_NAME);
 
     const queryResponse = await index.query({
       vector: queryVector as number[],
-      topK: 5,
+      topK: 10, 
       includeMetadata: true,
       filter: { agent: { $eq: agentType } }
     });
 
-    // 3. CHECK CONTEXT (Instant Fallback if no data found)
     const matches = queryResponse.matches || [];
     if (matches.length === 0) {
       return NextResponse.json({ response: FALLBACK_MESSAGE, sources: [] });
@@ -78,47 +74,53 @@ export async function POST(req: NextRequest) {
 
     const context = matches
       .map(doc => doc.metadata?.text)
-      .filter(text => text) // filter out undefined/null
+      .filter(text => text)
       .join('\n\n');
 
-    if (!context || context.trim().length === 0) {
-        return NextResponse.json({ response: FALLBACK_MESSAGE, sources: [] });
-    }
-
-    // 4. SYSTEM PROMPT (BARRIER REMOVED)
-    // No strict rules, just "Helpful Assistant" + "Chart Instructions"
-    const isChartRequest = /\b(forecast|trend|breakdown|break\s*up|distribution|volume|graph|chart|plot|compare|comparison|pie|bar)\b/i.test(message);
+    // 3. DETECT CHART INTENT
+    // Added keywords like "compare", "vs", "versus", "difference" to stronger triggers
+    const isChartRequest = /\b(forecast|trend|breakdown|break\s*up|distribution|volume|graph|chart|plot|compare|comparison|pie|bar|vs|versus|diff)\b/i.test(message);
 
     const chartInstruction = `
-    IF the user asks for a visualization (chart, graph, breakdown) AND the data is present in the context:
-    - Respond with ONLY the following JSON format.
-    - Do not add conversational text.
+    VISUALIZATION MODE ACTIVATED:
+    The user wants a comparison or visualization.
+    
+    CRITICAL INSTRUCTION:
+    1. Scan the Context Data for NUMERICAL values related to the user's query.
+    2. IF numerical data exists (like costs, rates, counts):
+       - You MUST Output ONLY the JSON object below.
+       - Do not write any introduction text.
     
     JSON Format:
     {
       "type": "chart",
-      "chartType": "line", 
-      "title": "Chart Title",
-      "explanation": "Brief explanation.",
-      "data": { "labels": [...], "datasets": [...] }
+      "chartType": "bar", 
+      "title": "Comparison Title",
+      "explanation": "A 1-sentence summary of the data.",
+      "data": { 
+        "labels": ["Label1", "Label2"], 
+        "datasets": [
+          { "label": "Dataset Name", "data": [10, 20] }
+        ] 
+      }
     }
     Valid chartTypes: "line", "bar", "pie", "doughnut".
     `;
 
-    const systemPrompt = `You are a helpful AI assistant for the City of Rancho Cordova and SMUD.
+    const systemPrompt = `You are a helpful AI assistant for Rancho Cordova and SMUD.
     
     CONTEXT DATA:
     ${context}
 
     INSTRUCTIONS:
-    1. Answer the user's question using the Context Data provided above.
-    2. If the user refers to "Ticket", "Case", or "Issue", check for "CallID" or similar fields in the data.
-    3. Be professional, direct, and helpful.
-    4. Use Markdown for formatting (bold keys, lists).
+    1. Answer based ONLY on the Context Data.
+    2. If the user asks to "Compare" two things and data is present, default to a Chart/Graph using the format below.
+    3. If no numerical data is found, explain that clearly in text.
+    4. "Ticket" / "Case" refers to "CallID" in the data.
     
     ${isChartRequest ? chartInstruction : ''}`;
 
-    // 5. LLM GENERATION
+    // 4. LLM GENERATION
     const groq = new Groq({ apiKey: GROQ_API_KEY });
     const completion = await groq.chat.completions.create({
       messages: [
@@ -126,17 +128,16 @@ export async function POST(req: NextRequest) {
         { role: 'user', content: message }
       ],
       model: 'llama-3.3-70b-versatile',
-      temperature: 0.3, 
+      temperature: 0.1, // Low temperature for consistent JSON
       max_tokens: 1024,
     });
 
     const rawContent = completion.choices[0]?.message?.content || FALLBACK_MESSAGE;
 
-    // 6. PARSE RESPONSE
+    // 5. PARSE RESPONSE
     let chartData = null;
     let finalText = rawContent;
 
-    // Attempt to extract chart JSON if present
     if (rawContent.includes('"type": "chart"') || rawContent.includes('"type":"chart"')) {
       try {
         let cleanContent = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();     
@@ -148,12 +149,11 @@ export async function POST(req: NextRequest) {
            const parsed = JSON.parse(jsonString);
            if (parsed.data && parsed.chartType) {
              chartData = parsed;
-             finalText = parsed.explanation || "Here is the visualization you requested.";
+             finalText = parsed.explanation || "Here is the comparison you requested.";
            }
         }
       } catch (e) {
         console.warn('Chart Parse Error', e);
-        // If JSON fails, just return the text, no big deal
       }
     }
     
@@ -164,8 +164,7 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (error: any) {
-    console.error('API Route Critical Error:', error);
-    // 7. GLOBAL ERROR FALLBACK
-    return NextResponse.json({ response: FALLBACK_MESSAGE }, { status: 200 }); // Return 200 so UI displays message cleanly
+    console.error('API Route Error:', error);
+    return NextResponse.json({ response: FALLBACK_MESSAGE }, { status: 200 });
   }
 }
