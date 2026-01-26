@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
       .filter(match => (match.score || 0) > 0.4)
       .map(doc => doc.metadata?.text).join('\n\n');
 
-    // 3. SYSTEM PROMPT (UPDATED FOR STRICT CONTEXT RELIANCE)
+    // 3. SYSTEM PROMPT (UPDATED WITH DATA DICTIONARY)
     const isChartRequest = /\b(forecast|trend|breakdown|break\s*up|distribution|volume|graph|chart|plot|compare|comparison|pie|bar)\b/i.test(message);
 
     // Strict Fallback Message
@@ -100,8 +100,18 @@ export async function POST(req: NextRequest) {
     Valid chartTypes: "line", "bar", "pie", "doughnut".
     `;
 
+    // --- DATA DICTIONARY: TEACHING THE AI YOUR VOCABULARY ---
+    const dataDictionary = `
+    DATA DICTIONARY / TERMINOLOGY:
+    - "Ticket", "Case", "Request", "Issue" = Refers to "CallID" or "CL" entries (e.g., CL0092) in the context.
+    - "Service Logs" = Refers to the customer service records.
+    - "Usage", "Consumption" = Refers to "EnergyConsumption_kWh".
+    - "Rates", "Tariff" = Refers to SMUD TOU (Time of Use) rates.
+    `;
+
     const systemPrompt = isChartRequest
       ? `You are a helper for Rancho Cordova. Context: ${context}. 
+         ${dataDictionary}
          
          STRICT DATA RULE:
          1. Look for the data requested in the Context above.
@@ -111,10 +121,11 @@ export async function POST(req: NextRequest) {
          3. IF the data IS present, proceed with the chart generation:
          ${chartInstruction}`
       : `You are a knowledgeable assistant for Rancho Cordova. Context: ${context}.
+         ${dataDictionary}
          
          STRICT ANTI-HALLUCINATION RULES:
          1. Your knowledge is strictly limited to the provided Context.
-         2. Verify if the answer to the user's question exists explicitly within the Context.
+         2. Verify if the answer to the user's question exists explicitly within the Context (using the Data Dictionary to understand terms).
          3. IF the answer is NOT in the Context, or if the question is not about Rancho Cordova/SMUD:
             You MUST output EXACTLY: "${FALLBACK_MESSAGE}"
          4. Do not use outside knowledge. Do not make up facts.
@@ -133,7 +144,7 @@ export async function POST(req: NextRequest) {
         { role: 'user', content: message }
       ],
       model: 'llama-3.3-70b-versatile',
-      temperature: 0.1, // Lowered temperature to reduce hallucination
+      temperature: 0.1, // Keep this low to prevent hallucination
       max_tokens: 1024,
     });
 
@@ -143,22 +154,16 @@ export async function POST(req: NextRequest) {
     let chartData = null;
     let finalText = rawContent;
 
-    // Check if the response contains the specific chart indicator
     if (rawContent.includes('"type": "chart"') || rawContent.includes('"type":"chart"')) {
       try {
-        // 1. Remove Markdown code blocks first
         let cleanContent = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();     
-        // 2. ROBUST EXTRACTION: Find the FIRST '{' and the LAST '}'
-        
         const firstBrace = cleanContent.indexOf('{');
         const lastBrace = cleanContent.lastIndexOf('}');
 
         if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-           // Extract everything between the outer braces
            const jsonString = cleanContent.substring(firstBrace, lastBrace + 1);
            const parsed = JSON.parse(jsonString);
             
-           // 3. Validation
            if (parsed.data && parsed.chartType) {
              chartData = parsed;
              finalText = parsed.explanation || "Here is the visualization you requested.";
