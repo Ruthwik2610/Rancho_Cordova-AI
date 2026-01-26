@@ -130,7 +130,7 @@ export default function LoginPage() {
               Jothi Periasamy
             </p>
             <p className="text-sm text-slate-600 font-medium">
-              Chief Architect LLM at Scale.AI
+              Chief Architect 
             </p>
             <p className="text-sm text-blue-600 font-semibold">
               LLM at Scale.AI
@@ -153,7 +153,7 @@ export default function LoginPage() {
         
         <div className="absolute bottom-0 left-0 w-full p-20 text-white space-y-8">
           <div className="w-20 h-1.5 bg-blue-400 rounded-full" />
-          <h2 className="text-5xl font-serif font-bold max-w-lg leading-tight">
+          <h2 className="text-4xl font-serif font-bold max-w-lg leading-tight">
             Empowering the Community with Intelligent Insights
           </h2>
           <p className="text-blue-100 text-xl max-w-md font-sans leading-relaxed">
