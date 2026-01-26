@@ -1,4 +1,3 @@
-// app/login/page.tsx
 'use client';
 
 import { useState } from 'react';
@@ -36,17 +35,17 @@ export default function LoginPage() {
       {/* --- LEFT SIDE: THE BUBBLE FORM --- */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8">
         
-        {/* THE BUBBLE CARD (Scaled Up) */}
+        {/* THE BUBBLE CARD */}
         <div className="
-          w-full max-w-[500px]       /* 1. Increased Width */
+          w-full max-w-[500px]
           bg-transparent
-          p-10                       /* 2. More Padding */
-          rounded-[3rem]             /* Larger rounded corners for bigger size */
+          p-10
+          rounded-[3rem]
           border-2 border-slate-300
-          flex flex-col items-center gap-8
+          flex flex-col items-center gap-6
         ">
           
-          {/* Logo (Scaled Up) */}
+          {/* Logo */}
           <div className="relative w-60 h-16">
             <Image 
               src="/static/images.png" 
@@ -112,7 +111,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full flex items-center justify-center py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white text-base font-bold rounded-2xl shadow-lg shadow-blue-600/30 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed mt-4"
+              className="w-full flex items-center justify-center py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white text-base font-bold rounded-2xl shadow-lg shadow-blue-600/30 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed mt-2"
             >
               {loading ? (
                 <Loader2 className="animate-spin h-6 w-6" />
@@ -122,10 +121,22 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Footer Text */}
-          <div className="text-center text-xs text-slate-400 font-sans">
-            <p>Contact: <strong>Jothi Periasamy</strong> / <strong>Chief Architect LLM at Scale.AI</strong></p>
+          {/* CONTACT BOX (Replaced Demo Credentials) */}
+          <div className="w-full mt-4 p-5 border border-slate-200 rounded-2xl bg-slate-50/80 text-center space-y-1.5">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+              Contact
+            </p>
+            <p className="text-base font-bold text-slate-800">
+              Jothi Periasamy
+            </p>
+            <p className="text-sm text-slate-600 font-medium">
+              Chief Architect
+            </p>
+            <p className="text-sm text-blue-600 font-semibold">
+              LLM at Scale.AI
+            </p>
           </div>
+
         </div>
       </div>
 
