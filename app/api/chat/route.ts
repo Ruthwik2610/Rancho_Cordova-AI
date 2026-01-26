@@ -72,10 +72,9 @@ export async function POST(req: NextRequest) {
       .filter(match => (match.score || 0) > 0.4)
       .map(doc => doc.metadata?.text).join('\n\n');
 
-    // 3. SYSTEM PROMPT (UPDATED WITH DATA DICTIONARY)
+    // 3. SYSTEM PROMPT (SMART & STRICT)
     const isChartRequest = /\b(forecast|trend|breakdown|break\s*up|distribution|volume|graph|chart|plot|compare|comparison|pie|bar)\b/i.test(message);
 
-    // Strict Fallback Message
     const FALLBACK_MESSAGE = "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope.";
 
     const chartInstruction = `
@@ -89,7 +88,7 @@ export async function POST(req: NextRequest) {
     - Ignore the JSON format.
     - Respond with a normal text answer using Markdown.
 
-    JSON Format (for numerical data only):
+    JSON Format:
     {
       "type": "chart",
       "chartType": "line", 
@@ -97,45 +96,33 @@ export async function POST(req: NextRequest) {
       "explanation": "Brief explanation.",
       "data": { "labels": [...], "datasets": [...] }
     }
-    Valid chartTypes: "line", "bar", "pie", "doughnut".
     `;
 
-    // --- DATA DICTIONARY: TEACHING THE AI YOUR VOCABULARY ---
-    const dataDictionary = `
-    DATA DICTIONARY / TERMINOLOGY:
-    - "Ticket", "Case", "Request", "Issue" = Refers to "CallID" or "CL" entries (e.g., CL0092) in the context.
-    - "Service Logs" = Refers to the customer service records.
-    - "Usage", "Consumption" = Refers to "EnergyConsumption_kWh".
-    - "Rates", "Tariff" = Refers to SMUD TOU (Time of Use) rates.
-    `;
-
+    // --- KEY UPDATE: LOGIC INSTEAD OF DICTIONARY ---
+    // We replace the hardcoded dictionary with specific "Rules of Engagement"
     const systemPrompt = isChartRequest
       ? `You are a helper for Rancho Cordova. Context: ${context}. 
-         ${dataDictionary}
          
          STRICT DATA RULE:
          1. Look for the data requested in the Context above.
-         2. IF the specific data points needed for the chart are NOT present in the Context:
-            You MUST respond EXACTLY with: "${FALLBACK_MESSAGE}"
-            Do NOT generate a chart with made-up numbers.
-         3. IF the data IS present, proceed with the chart generation:
+         2. IF the specific data points are NOT present: Respond EXACTLY with "${FALLBACK_MESSAGE}".
+         3. IF present, generate the chart JSON.
          ${chartInstruction}`
-      : `You are a knowledgeable assistant for Rancho Cordova. Context: ${context}.
-         ${dataDictionary}
+      : `You are a knowledgeable assistant for Rancho Cordova and SMUD.
+      
+         CONTEXT:
+         ${context}
          
-         STRICT ANTI-HALLUCINATION RULES:
-         1. Your knowledge is strictly limited to the provided Context.
-         2. Verify if the answer to the user's question exists explicitly within the Context (using the Data Dictionary to understand terms).
-         3. IF the answer is NOT in the Context, or if the question is not about Rancho Cordova/SMUD:
-            You MUST output EXACTLY: "${FALLBACK_MESSAGE}"
-         4. Do not use outside knowledge. Do not make up facts.
+         STRICT RULES OF ENGAGEMENT:
+         1. **NO OUTSIDE KNOWLEDGE:** Do not answer questions using your general training data (e.g., "Who is the US President?", "What is Python code?", "World History"). If the answer is not physically present in the Context above, you MUST respond with: "${FALLBACK_MESSAGE}".
          
-         FORMATTING RULES (Only if answering from Context):
-         1. STRUCTURE: Use Markdown.
-         2. LISTS: Always insert a BLANK LINE before starting a list.
-         3. SPACING: Always insert a BLANK LINE between bullet points.
-         4. EMPHASIS: Use **bold** for phone numbers, emails, addresses, and key terms.
-         5. TONE: Professional, helpful, and direct.`;
+         2. **INTELLIGENT MATCHING:** You ARE allowed to infer that user terms refer to the provided data fields if the values match.
+            - Example: If user asks for "Ticket CL0092" and context has "CallID: CL0092", this IS a match. Answer it.
+            - Example: If user asks for "Bill" and context has "Cost" or "Rate", this IS a match.
+            
+         3. **VERIFICATION:** Before answering, ask yourself: "Is this information in the text block above?"
+            - If YES: Answer using Markdown (bold keys, lists).
+            - If NO: Output the Fallback Message.`;
 
     const groq = new Groq({ apiKey: GROQ_API_KEY });
     const completion = await groq.chat.completions.create({
@@ -144,7 +131,7 @@ export async function POST(req: NextRequest) {
         { role: 'user', content: message }
       ],
       model: 'llama-3.3-70b-versatile',
-      temperature: 0.1, // Keep this low to prevent hallucination
+      temperature: 0.1, 
       max_tokens: 1024,
     });
 
@@ -163,7 +150,6 @@ export async function POST(req: NextRequest) {
         if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
            const jsonString = cleanContent.substring(firstBrace, lastBrace + 1);
            const parsed = JSON.parse(jsonString);
-            
            if (parsed.data && parsed.chartType) {
              chartData = parsed;
              finalText = parsed.explanation || "Here is the visualization you requested.";
