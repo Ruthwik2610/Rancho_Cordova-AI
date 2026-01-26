@@ -106,40 +106,59 @@ export async function POST(req: NextRequest) {
 
 Context: ${context}
 
-CRITICAL INSTRUCTION:
-1. CHECK CONTEXT: Does the provided Context contain NUMERICAL DATA needed to answer this question?
-   - IF NO: Respond with exactly: "${fallbackMessage}"
-   - IF YES: Proceed to generate a chart.
+CRITICAL INSTRUCTIONS:
 
-2. GENERATE CHART JSON: You MUST respond with ONLY valid JSON in this format:
+1. CHECK IF CONTEXT IS RELEVANT:
+   - Does the Context contain information related to the user's question?
+   - IF NO relevant information exists: Respond with exactly: "${fallbackMessage}"
+   - IF YES: Proceed to Step 2.
+
+2. EVALUATE DATA AVAILABILITY:
+   - Does the Context contain ANY numerical data, rates, values, or quantitative information?
+   - Can you extract or reasonably infer numbers from the Context (even if not in a table)?
+   - IF YES: Generate a chart (Step 3)
+   - IF NO clear numbers exist: Respond with exactly: "${fallbackMessage}"
+
+3. GENERATE CHART JSON:
+   You MUST respond with ONLY valid JSON in this exact format:
+
 {
   "type": "chart",
   "chartType": "line" | "bar" | "pie" | "doughnut",
   "title": "Descriptive Chart Title",
-  "explanation": "1-2 sentence explanation of what the chart shows",
+  "explanation": "1-2 sentence explanation of what the chart shows and data source",
   "data": {
     "labels": ["Label1", "Label2", ...],
     "datasets": [{
       "label": "Dataset Name",
       "data": [value1, value2, ...],
-      "backgroundColor": "#3B82F6" or ["#3B82F6", "#10B981", ...],
+      "backgroundColor": "#3B82F6" or ["#3B82F6", "#10B981", "#F59E0B", ...],
       "borderColor": "#2563EB"
     }]
   }
 }
 
 CHART TYPE SELECTION:
-- Use "line" for trends over time
-- Use "bar" for comparisons between categories (e.g., Apartment vs Single-Family)
-- Use "pie" or "doughnut" for percentage breakdowns
-- Always use arrays for backgroundColor in pie/doughnut charts with multiple segments
+- "line": Trends over time or continuous data
+- "bar": Comparisons between categories (e.g., Summer vs Non-Summer, Apartment vs House)
+- "pie" or "doughnut": Percentage breakdowns or distribution (must total 100% or represent parts of a whole)
 
-IMPORTANT: For comparison queries like "Compare X vs Y":
-- Extract numerical values from context
-- Create a bar chart with clear labels
-- Use different colors for each category
+DATA EXTRACTION RULES:
+- If exact numbers are in the Context, use them
+- If rates are described (e.g., "Summer rates are 15% higher"), calculate reasonable values
+- If only qualitative comparisons exist (e.g., "higher in summer"), use representative values that show the relationship
+- Always base your data on what's stated in the Context - don't invent information
 
-DO NOT include any text outside the JSON.`;
+COLOR GUIDELINES:
+- Use blue tones (#3B82F6, #2563EB) for primary data
+- Use green (#10B981) for positive/energy-saving data
+- Use orange (#F59E0B) for higher costs/summer data
+- For pie charts, use an array: ["#3B82F6", "#10B981", "#F59E0B", "#EF4444"]
+
+IMPORTANT:
+- DO NOT include any explanatory text outside the JSON
+- DO NOT use markdown code blocks around the JSON
+- Ensure all JSON is valid and parseable`;
 
     } else if (isTextList) {
       systemPrompt = `You are a knowledgeable assistant for Rancho Cordova.
@@ -194,7 +213,7 @@ DO NOT generate JSON unless explicitly asked for data visualization.`;
         { role: 'user', content: message }
       ],
       model: 'llama-3.3-70b-versatile',
-      temperature: shouldGenerateChart ? 0.1 : 0.25, // Lower temp for charts to ensure valid JSON
+      temperature: shouldGenerateChart ? 0.2 : 0.25, // Slightly higher for more flexibility
       max_tokens: 1024,
     });
 
