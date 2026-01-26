@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
         { role: 'user', content: message }
       ],
       model: 'llama-3.3-70b-versatile',
-      temperature: 0.1, // Lower temperature to enforce strict adherence to the refusal instruction
+      temperature: 0.25, // Lower temperature to enforce strict adherence to the refusal instruction
       max_tokens: 1024,
     });
 
