@@ -38,16 +38,16 @@ export default function LoginPage() {
         
      
         <div className="
-          w-full max-w-[380px]
+          w-full max-w-[500px]
           bg-transparent            
-          p-8                       
-          rounded-[2.5rem]          
-          border-2 border-slate-300  
+          p-10                       
+          rounded-[3rem]          
+          border-2 border-slate-200  
           flex flex-col items-center gap-6
         ">
           
           {/* Logo */}
-          <div className="relative w-44 h-12">
+          <div className="relative w-60 h-16">
             <Image 
               src="/static/images.png" 
               alt="Logo" 
@@ -60,7 +60,7 @@ export default function LoginPage() {
           {/* Title */}
           <div className="text-center">
             <h1 className="text-xl font-bold text-slate-800">Welcome Back</h1>
-            <p className="text-xs text-slate-500 mt-1 font-medium">Please sign in to dashboard</p>
+            <p className="text-xs text-slate-500 mt-1 font-medium">Please sign in </p>
           </div>
 
           {/* Form */}
