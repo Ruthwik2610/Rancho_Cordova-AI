@@ -22,7 +22,7 @@ export default function LoginPage() {
 
     if (username === 'admin' && password === 'rancho2024') {
       sessionStorage.setItem('isAuthenticated', 'true');
-      router.push('/');
+      router.push('/select-agent');
     } else {
       setError('Invalid username or password');
       setLoading(false);
