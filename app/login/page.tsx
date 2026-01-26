@@ -127,10 +127,10 @@ export default function LoginPage() {
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
               Contact
             </p>
-            <p className="text-base  text-black-400">
+            <p className="text-base  text-black-400 font-semibold">
               Jothi Periasamy
             </p>
-            <p className="text-sm text-black-400 font-medium">
+            <p className="text-sm text-black-400 font-semibold">
               Chief Architect 
             </p>
             <p className="text-sm text-black-400 font-semibold">
