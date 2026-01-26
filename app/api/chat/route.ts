@@ -11,6 +11,26 @@ const PINECONE_INDEX_NAME = process.env.PINECONE_INDEX_NAME || 'rancho-cordova';
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
 
+// Smart detection functions
+const isNumericalChartQuery = (message: string): boolean => {
+  const numericalKeywords = /\b(forecast|trend|usage|consumption|cost|bill|price|rate|volume|analytics|statistics|growth|decline|increase|decrease|over time|monthly|yearly|annual)\b/i;
+  const comparisonKeywords = /\b(compare|comparison|vs|versus|difference between)\b/i;
+  const chartKeywords = /\b(graph|chart|plot|visualize|show me a|line chart|bar chart|pie chart)\b/i;
+  
+  const hasNumericalContext = numericalKeywords.test(message);
+  const hasComparisonWithNumbers = comparisonKeywords.test(message) && numericalKeywords.test(message);
+  const explicitChartRequest = chartKeywords.test(message);
+  
+  return hasNumericalContext || hasComparisonWithNumbers || explicitChartRequest;
+};
+
+const isTextBreakdownQuery = (message: string): boolean => {
+  const textBreakdownKeywords = /\b(breakdown|list|departments|divisions|types|categories|names|locations|addresses|contacts|services|programs|who|what are|which)\b/i;
+  const numericalKeywords = /\b(forecast|trend|usage|consumption|cost|bill|price|rate|volume|analytics)\b/i;
+  
+  return textBreakdownKeywords.test(message) && !numericalKeywords.test(message);
+};
+
 export async function POST(req: NextRequest) {
   try {
     if (!PINECONE_API_KEY || !GROQ_API_KEY || !HUGGINGFACE_API_KEY) {
@@ -72,58 +92,101 @@ export async function POST(req: NextRequest) {
       .filter(match => (match.score || 0) > 0.4)
       .map(doc => doc.metadata?.text).join('\n\n');
 
-    // 3. SYSTEM PROMPT (UPDATED WITH ANTI-HALLUCINATION & SMART CHART LOGIC)
-    const isChartRequest = /\b(forecast|trend|breakdown|break\s*up|distribution|volume|graph|chart|plot|compare|comparison|pie|bar)\b/i.test(message);
+    // 3. DETERMINE QUERY TYPE
+    const shouldGenerateChart = isNumericalChartQuery(message);
+    const isTextList = isTextBreakdownQuery(message);
 
     const fallbackMessage = "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope";
 
-    const chartInstruction = `
-    The user's query matched a visualization keyword.
-    
-    STEP 1: CHECK CONTEXT
-    Does the provided Context contain the specific data needed to answer the user's question?
-    - IF NO: You MUST respond with exactly this phrase: "${fallbackMessage}"
-    - IF YES: Proceed to Step 2.
+    // 4. BUILD APPROPRIATE SYSTEM PROMPT
+    let systemPrompt = '';
 
-    STEP 2: DETERMINE FORMAT
-    IF the answer involves numerical data, trends, or comparisons (e.g. "Energy usage trend"):
-    - You MUST respond with ONLY the following JSON format.
-    - Do not include any conversational text outside the JSON.
-    
-    IF the answer is a text list, location info, or qualitative description (e.g. "breakdown of departments"):
-    - Ignore the JSON format.
-    - Respond with a normal text answer using Markdown.
+    if (shouldGenerateChart && !isTextList) {
+      systemPrompt = `You are a data visualization assistant for Rancho Cordova.
 
-    JSON Format (for numerical data only):
-    {
-      "type": "chart",
-      "chartType": "line", 
-      "title": "Chart Title",
-      "explanation": "Brief explanation.",
-      "data": { "labels": [...], "datasets": [...] }
+Context: ${context}
+
+CRITICAL INSTRUCTION:
+1. CHECK CONTEXT: Does the provided Context contain NUMERICAL DATA needed to answer this question?
+   - IF NO: Respond with exactly: "${fallbackMessage}"
+   - IF YES: Proceed to generate a chart.
+
+2. GENERATE CHART JSON: You MUST respond with ONLY valid JSON in this format:
+{
+  "type": "chart",
+  "chartType": "line" | "bar" | "pie" | "doughnut",
+  "title": "Descriptive Chart Title",
+  "explanation": "1-2 sentence explanation of what the chart shows",
+  "data": {
+    "labels": ["Label1", "Label2", ...],
+    "datasets": [{
+      "label": "Dataset Name",
+      "data": [value1, value2, ...],
+      "backgroundColor": "#3B82F6" or ["#3B82F6", "#10B981", ...],
+      "borderColor": "#2563EB"
+    }]
+  }
+}
+
+CHART TYPE SELECTION:
+- Use "line" for trends over time
+- Use "bar" for comparisons between categories (e.g., Apartment vs Single-Family)
+- Use "pie" or "doughnut" for percentage breakdowns
+- Always use arrays for backgroundColor in pie/doughnut charts with multiple segments
+
+IMPORTANT: For comparison queries like "Compare X vs Y":
+- Extract numerical values from context
+- Create a bar chart with clear labels
+- Use different colors for each category
+
+DO NOT include any text outside the JSON.`;
+
+    } else if (isTextList) {
+      systemPrompt = `You are a knowledgeable assistant for Rancho Cordova.
+
+Context: ${context}
+
+CRITICAL INSTRUCTION:
+1. CHECK CONTEXT: Does the provided Context contain the information needed to answer this question?
+   - IF NO: Respond with exactly: "${fallbackMessage}"
+   - IF YES: Provide a well-formatted text answer.
+
+2. FORMATTING RULES:
+   - Use Markdown formatting
+   - Always insert a BLANK LINE before starting a list
+   - Always insert a BLANK LINE between bullet points
+   - Use **bold** for important terms, names, and contact info
+   - Use clear section headers if listing multiple categories
+   - Be concise but informative
+
+3. STRUCTURE:
+   - Start with a brief intro sentence
+   - Then provide the requested breakdown/list
+   - End with any relevant additional info
+
+DO NOT generate JSON or charts. This is a text-based query requiring a structured list.`;
+
+    } else {
+      systemPrompt = `You are a knowledgeable assistant for Rancho Cordova.
+
+Context: ${context}
+
+CRITICAL INSTRUCTION:
+If the provided Context does not contain the information needed to answer the question, respond with exactly:
+"${fallbackMessage}"
+
+Otherwise, provide a helpful, conversational answer using Markdown formatting.
+
+FORMATTING RULES:
+- Use Markdown for structure
+- Insert blank lines before lists and between bullet points
+- Use **bold** for emphasis on key information (phone numbers, emails, addresses)
+- Keep tone professional and helpful
+
+DO NOT generate JSON unless explicitly asked for data visualization.`;
     }
-    Valid chartTypes: "line", "bar", "pie", "doughnut".
-    `;
 
-    const systemPrompt = isChartRequest
-      ? `You are a helper for Rancho Cordova. Context: ${context}. ${chartInstruction}`
-      : `You are a knowledgeable assistant for Rancho Cordova. Context: ${context}.
-         
-         CRITICAL INSTRUCTION:
-         Check the provided Context carefully. If the Context does not contain the information needed to answer the question, you MUST respond with exactly this phrase:
-         "${fallbackMessage}"
-         
-         Do NOT use your internal training data to answer questions outside the provided context.
-         
-         CRITICAL FORMATTING RULES (Only if answering):
-         1. STRUCTURE: Use Markdown.
-         2. LISTS: Always insert a BLANK LINE before starting a list.
-         3. SPACING: Always insert a BLANK LINE between bullet points.
-         4. EMPHASIS: Use **bold** for phone numbers, emails, addresses, and key terms.
-         5. TONE: Professional, helpful, and direct.
-         
-         Do NOT generate JSON unless asked for a chart.`;
-
+    // 5. CALL GROQ API
     const groq = new Groq({ apiKey: GROQ_API_KEY });
     const completion = await groq.chat.completions.create({
       messages: [
@@ -131,32 +194,26 @@ export async function POST(req: NextRequest) {
         { role: 'user', content: message }
       ],
       model: 'llama-3.3-70b-versatile',
-      temperature: 0.25, // Lower temperature to enforce strict adherence to the refusal instruction
+      temperature: shouldGenerateChart ? 0.1 : 0.25, // Lower temp for charts to ensure valid JSON
       max_tokens: 1024,
     });
 
     const rawContent = completion.choices[0]?.message?.content || 'I could not generate a response.';
 
-    // 4. PARSE & CLEAN
+    // 6. PARSE & CLEAN RESPONSE
     let chartData = null;
     let finalText = rawContent;
 
-    // Check if the response contains the specific chart indicator
-    if (rawContent.includes('"type": "chart"') || rawContent.includes('"type":"chart"')) {
+    if (shouldGenerateChart && (rawContent.includes('"type": "chart"') || rawContent.includes('"type":"chart"'))) {
       try {
-        // 1. Remove Markdown code blocks first
-        let cleanContent = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();     
-        // 2. ROBUST EXTRACTION: Find the FIRST '{' and the LAST '}'
-        
+        let cleanContent = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
         const firstBrace = cleanContent.indexOf('{');
         const lastBrace = cleanContent.lastIndexOf('}');
 
         if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-           // Extract everything between the outer braces
            const jsonString = cleanContent.substring(firstBrace, lastBrace + 1);
            const parsed = JSON.parse(jsonString);
             
-           // 3. Validation
            if (parsed.data && parsed.chartType) {
              chartData = parsed;
              finalText = parsed.explanation || "Here is the visualization you requested.";
@@ -164,6 +221,8 @@ export async function POST(req: NextRequest) {
         }
       } catch (e) {
         console.warn('Chart Parse Error:', e);
+        // Fall back to text response if chart parsing fails
+        finalText = rawContent;
       }
     }
     
