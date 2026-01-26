@@ -47,7 +47,7 @@ export default function LoginPage() {
           
           {/* Logo */}
 {/* Increased height from h-10 to h-16 */}
-    <div className="relative w-64 h-16 opacity-80 mix-blend-multiply">
+    <div className="relative w-64 h-16 ">
   <Image 
     src="/static/images.png"
     alt="Logo" 
