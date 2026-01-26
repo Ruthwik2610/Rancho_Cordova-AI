@@ -72,9 +72,11 @@ export async function POST(req: NextRequest) {
       .filter(match => (match.score || 0) > 0.4)
       .map(doc => doc.metadata?.text).join('\n\n');
 
-    // 3. SYSTEM PROMPT (UPDATED & MORE ROBUST)
-    // Added: "break up", "distribution", "compare", "pie", "bar"
+    // 3. SYSTEM PROMPT (UPDATED FOR SCOPE RESTRICTION)
     const isChartRequest = /\b(forecast|trend|breakdown|break\s*up|distribution|volume|graph|chart|plot|compare|comparison|pie|bar)\b/i.test(message);
+
+    // Define the required fallback message
+    const FALLBACK_MESSAGE = "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope.";
 
     const chartInstruction = `
     The user's query matched a visualization keyword.
@@ -83,7 +85,7 @@ export async function POST(req: NextRequest) {
     - You MUST respond with ONLY the following JSON format.
     - Do not include any conversational text outside the JSON.
     
-    IF the answer is a text list, location info, or qualitative description (e.g. "breakdown of departments"):
+    IF the answer is a text list, location info, or qualitative description:
     - Ignore the JSON format.
     - Respond with a normal text answer using Markdown.
 
@@ -99,10 +101,23 @@ export async function POST(req: NextRequest) {
     `;
 
     const systemPrompt = isChartRequest
-      ? `You are a helper for Rancho Cordova. Context: ${context}. ${chartInstruction}`
+      ? `You are a helper for Rancho Cordova. Context: ${context}. 
+         
+         SCOPE INSTRUCTION:
+         Check if the user's question is related to the City of Rancho Cordova or SMUD (Sacramento Municipal Utility District) AND if the answer is present in the Context.
+         If NO: Respond EXACTLY with "${FALLBACK_MESSAGE}" and do not generate a chart.
+         If YES: Proceed with the chart generation instructions below.
+         
+         ${chartInstruction}`
       : `You are a knowledgeable assistant for Rancho Cordova. Context: ${context}.
          
-         CRITICAL FORMATTING RULES:
+         CRITICAL SCOPE INSTRUCTIONS:
+         1. You are strictly limited to answering questions related to the **City of Rancho Cordova** and **SMUD** (Sacramento Municipal Utility District).
+         2. You must base your answers **SOLELY** on the provided Context.
+         3. IF the user's question is unrelated to these topics, OR if the answer cannot be found in the Context:
+            You MUST output EXACTLY: "${FALLBACK_MESSAGE}"
+         
+         CRITICAL FORMATTING RULES (Only if answering within scope):
          1. STRUCTURE: Use Markdown.
          2. LISTS: Always insert a BLANK LINE before starting a list.
          3. SPACING: Always insert a BLANK LINE between bullet points.
@@ -124,7 +139,7 @@ export async function POST(req: NextRequest) {
 
     const rawContent = completion.choices[0]?.message?.content || 'I could not generate a response.';
 
-// 4. PARSE & CLEAN
+    // 4. PARSE & CLEAN
     let chartData = null;
     let finalText = rawContent;
 
@@ -146,15 +161,14 @@ export async function POST(req: NextRequest) {
            // 3. Validation
            if (parsed.data && parsed.chartType) {
              chartData = parsed;
-             
              finalText = parsed.explanation || "Here is the visualization you requested.";
            }
         }
       } catch (e) {
         console.warn('Chart Parse Error:', e);
-       
       }
     }
+    
     return NextResponse.json({
       response: finalText,
       chartData: chartData,
