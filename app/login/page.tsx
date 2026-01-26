@@ -124,7 +124,7 @@ export default function LoginPage() {
 
           {/* CONTACT BOX (Replaced Demo Credentials) */}
           <div className="w-full mt-4 p-5 border border-slate-200 rounded-2xl bg-slate-50/80 text-center space-y-1.5">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+            <p className="text-[16px] font-bold text-slate-400 uppercase tracking-widest mb-1">
               Contact
             </p>
             <p className="text-base  text-black-400 font-semibold">
