@@ -34,7 +34,7 @@ export default function SelectAgentPage() {
       {/* Header */}
       <header className="border-b border-slate-200 bg-white/80 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-          <div className="relative w-48 h-12">
+          <div className="relative w-60 h-16">
             <Image
               src="/static/images.png"
               alt="City of Rancho Cordova"
@@ -64,7 +64,7 @@ export default function SelectAgentPage() {
             Choose Your AI Agent
           </h1>
           <p className="text-xl text-slate-600 max-w-2xl mx-auto">
-            Select the specialized Agent that best fits your needs. Each is trained to help you with specific services.
+            Select the agent that best fits your needs. Each specializes in specific services.
           </p>
         </motion.div>
 
@@ -222,7 +222,7 @@ export default function SelectAgentPage() {
             <div>
               <h3 className="font-semibold text-slate-900 mb-1">Need Help Choosing?</h3>
               <p className="text-sm text-slate-600 leading-relaxed">
-                You can switch between Agents at any time using the toggle in the chat interface. Both agents have access to comprehensive city data and can help with general inquiries.
+                Switch between agents anytime using the chat toggle. Both have full access to city data and handle all inquiries.
               </p>
             </div>
           </div>
@@ -232,3 +232,4 @@ export default function SelectAgentPage() {
   );
 
 }
+
