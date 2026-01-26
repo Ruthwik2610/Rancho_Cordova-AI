@@ -222,7 +222,7 @@ export default function SelectAgentPage() {
             <div>
               <h3 className="font-semibold text-slate-900 mb-1">Need Help Choosing?</h3>
               <p className="text-sm text-slate-600 leading-relaxed">
-                Switch between agents anytime using the chat toggle. Both have full access to city data and handle all inquiries.
+                Switch between agents anytime using the chat toggle. Both have full access to city data and can handle all inquiries.
               </p>
             </div>
           </div>
@@ -232,4 +232,5 @@ export default function SelectAgentPage() {
   );
 
 }
+
 
