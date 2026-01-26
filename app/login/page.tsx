@@ -131,7 +131,7 @@ export default function LoginPage() {
       {/* Right Side - Hero Image */}
       <div className="hidden lg:block lg:w-1/2 relative bg-slate-900">
         <Image 
-          src="/static/image_a8ecc8.jpg" 
+          src="/static/login_1.png" 
           alt="Rancho Cordova Landscape" 
           fill
           className="object-cover opacity-90"
