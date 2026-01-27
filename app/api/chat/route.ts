@@ -20,6 +20,50 @@ const DOMAIN_KEYWORDS =
 const PRIVACY_PATTERN =
   /\b(personal billing|billing details|payment history|full details|address|phone number|ssn|social security)\b/i;
 
+const REFUSAL_PATTERN =
+  /i cannot answer|i can'?t answer|not provided in the context|no information available|i do not have that information/i;
+
+const extractEmbedding = (obj: any): number[] | null => {
+  if (Array.isArray(obj) && obj.length > 0) {
+    if (Array.isArray(obj[0]) && typeof obj[0][0] === 'number') return obj[0];
+    if (typeof obj[0] === 'number') return obj;
+  }
+  if (obj?.embedding && Array.isArray(obj.embedding)) return obj.embedding;
+  if (obj?.embeddings && Array.isArray(obj.embeddings)) return obj.embeddings[0];
+  const nums = JSON.stringify(obj).match(/-?\d+\.\d+|-?\d+/g);
+  if (nums) return nums.map(Number);
+  return null;
+};
+
+const extractChartJson = (text: string): any | null => {
+  const idx = text.indexOf('"type": "chart"') >= 0
+    ? text.indexOf('"type": "chart"')
+    : text.indexOf('"type":"chart"');
+
+  if (idx === -1) return null;
+
+  let start = text.lastIndexOf('{', idx);
+  if (start === -1) start = text.indexOf('{');
+  if (start === -1) return null;
+
+  let depth = 0;
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        try {
+          const parsed = JSON.parse(text.slice(start, i + 1));
+          if (parsed?.type === 'chart') return parsed;
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+};
+
 export async function POST(req: NextRequest) {
   try {
     if (!PINECONE_API_KEY || !GROQ_API_KEY || !HUGGINGFACE_API_KEY) {
@@ -32,15 +76,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
-    if (PRIVACY_PATTERN.test(message)) {
-      return NextResponse.json({
-        response: NO_ANSWER_FALLBACK,
-        chartData: null,
-        sources: [],
-      });
-    }
-
-    if (!DOMAIN_KEYWORDS.test(message)) {
+    if (PRIVACY_PATTERN.test(message) || !DOMAIN_KEYWORDS.test(message)) {
       return NextResponse.json({
         response: NO_ANSWER_FALLBACK,
         chartData: null,
@@ -64,24 +100,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Model loading', estimated_time: 20 }, { status: 503 });
     }
 
-    if (!hfResp.ok) throw new Error('Embedding generation failed');
-
-    const hfJson = await hfResp.json();
-
-    function extractEmbedding(obj: any) {
-      if (Array.isArray(obj) && obj.length > 0) {
-        if (Array.isArray(obj[0]) && typeof obj[0][0] === 'number') return obj[0];
-        if (typeof obj[0] === 'number') return obj;
-      }
-      if (obj?.embedding && Array.isArray(obj.embedding)) return obj.embedding;
-      if (obj?.embeddings && Array.isArray(obj.embeddings)) return obj.embeddings[0];
-      const nums = JSON.stringify(obj).match(/-?\d+\.\d+|-?\d+/g);
-      if (nums) return nums.map(Number);
-      return null;
+    if (!hfResp.ok) {
+      throw new Error('Embedding generation failed');
     }
 
-    const queryVector = extractEmbedding(hfJson);
-    if (!Array.isArray(queryVector) || queryVector.length === 0) throw new Error('Invalid embedding format');
+    const queryVector = extractEmbedding(await hfResp.json());
+    if (!queryVector || queryVector.length === 0) {
+      throw new Error('Invalid embedding format');
+    }
 
     const pc = new Pinecone({ apiKey: PINECONE_API_KEY });
     const index = pc.index(PINECONE_INDEX_NAME);
@@ -93,9 +119,16 @@ export async function POST(req: NextRequest) {
       filter: { agent: { $eq: agentType } },
     });
 
-    const matches = Array.isArray(queryResponse?.matches) ? queryResponse.matches : [];
+    const matches = Array.isArray(queryResponse?.matches)
+      ? queryResponse.matches
+      : [];
+
     if (matches.length === 0) {
-      return NextResponse.json({ response: NO_ANSWER_FALLBACK, chartData: null, sources: [] });
+      return NextResponse.json({
+        response: NO_ANSWER_FALLBACK,
+        chartData: null,
+        sources: [],
+      });
     }
 
     const isChartRequest = /\b(chart|graph|plot|compare|trend|distribution|pie|bar)\b/i.test(message);
@@ -103,19 +136,27 @@ export async function POST(req: NextRequest) {
     const isDirectoryQuery = /\b(phone|email|contact|department|office|address)\b/i.test(message);
 
     let filteredMatches = matches;
+
     if (isNumericQuery || isChartRequest) {
       filteredMatches = matches.filter(m => typeof m.metadata?.text === 'string' && /\d/.test(m.metadata.text));
     }
+
     if (isDirectoryQuery) {
-      filteredMatches = matches.filter(m => typeof m.metadata?.text === 'string' && /@|\d{3}[-.\s]?\d{3}|suite|ave|street|st\b/i.test(m.metadata.text));
+      filteredMatches = matches.filter(m =>
+        typeof m.metadata?.text === 'string' &&
+        /@|\d{3}[-.\s]?\d{3}|suite|ave|street|st\b/i.test(m.metadata.text)
+      );
     }
+
     const usableMatches = filteredMatches.length > 0 ? filteredMatches : matches;
 
-    const context = usableMatches.slice(0, 4).map(m => m.metadata?.text).filter(Boolean).join('\n');
-    const MAX_CONTEXT_CHARS = 3000;
-    const finalContext = context.length > MAX_CONTEXT_CHARS ? context.slice(0, MAX_CONTEXT_CHARS) + '\n[TRUNCATED]' : context;
+    const context = usableMatches
+      .slice(0, 4)
+      .map(m => m.metadata?.text)
+      .filter(Boolean)
+      .join('\n');
 
-    const chartInstruction = `IF numerical data is involved respond ONLY with the specified JSON format.
+    const chartInstruction = `IF numerical data is involved respond ONLY with valid JSON.
 
 {
   "type":"chart",
@@ -126,8 +167,8 @@ export async function POST(req: NextRequest) {
 }`;
 
     const systemPrompt = isChartRequest
-      ? `You are a Rancho Cordova assistant. Use ONLY the provided context. Do not include signatures, system names, or assistant names. Do not mention or expose ticket numbers, call IDs, customer IDs, or internal record IDs. Summarize trends by category not by record. Context:\n${finalContext}\n\n${chartInstruction}`
-      : `You are a Rancho Cordova assistant. Use ONLY the provided context. Do not include signatures, system names, or assistant names. Do not mention or expose ticket numbers, call IDs, customer IDs, or internal record IDs. When describing trends, summarize by category not by individual records. If the answer is not in the context say you cannot answer. Context:\n${finalContext}`;
+      ? `You are a Rancho Cordova assistant. Use ONLY the provided context. Do not mention ticket numbers, call IDs, or customer IDs. Summarize trends by category. Context:\n${context}\n${chartInstruction}`
+      : `You are a Rancho Cordova assistant. Use ONLY the provided context. Do not mention ticket numbers, call IDs, or customer IDs. If the answer is not in the context say you cannot answer. Context:\n${context}`;
 
     const groq = new Groq({ apiKey: GROQ_API_KEY });
 
@@ -135,67 +176,37 @@ export async function POST(req: NextRequest) {
       model: 'llama-3.3-70b-versatile',
       temperature: 0.2,
       max_tokens: 1024,
-      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: message }],
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: message },
+      ],
     });
 
-    const rawContent = completion.choices?.[0]?.message?.content || '';
-    function extractChartJson(text: string) {
-      const idx = text.indexOf('"type": "chart"') >= 0 ? text.indexOf('"type": "chart"') : text.indexOf('"type":"chart"');
-      if (idx === -1) return null;
-      let start = text.lastIndexOf('{', idx);
-      if (start === -1) start = text.indexOf('{');
-      if (start === -1) return null;
-      let depth = 0;
-      for (let i = start; i < text.length; i++) {
-        const ch = text[i];
-        if (ch === '{') depth++;
-        else if (ch === '}') {
-          depth--;
-          if (depth === 0) {
-            const candidate = text.substring(start, i + 1);
-            try {
-              const parsed = JSON.parse(candidate);
-              if (parsed && parsed.type === 'chart') return parsed;
-            } catch {}
-            break;
-          }
-        }
-      }
-      const re = /\{[^]*?"type"\s*:\s*"chart"[^]*?\}/;
-      const m = text.match(re);
-      if (m) {
-        try { return JSON.parse(m[0]); } catch {}
-      }
-      return null;
-    }
+    let finalText = completion.choices?.[0]?.message?.content?.trim() || '';
 
-    const refusalPattern = /i cannot answer|i can'?t answer|no information available|not provided in the context|i do not have that information/i;
-    let finalText = rawContent.trim();
-    let chartData = null;
-
-    if (refusalPattern.test(finalText) || finalText.length === 0) {
+    if (REFUSAL_PATTERN.test(finalText) || finalText.length === 0) {
       finalText = NO_ANSWER_FALLBACK;
-    } else {
-      const parsedChart = extractChartJson(rawContent);
-      if (parsedChart && parsedChart.data && parsedChart.chartType) {
-        const allowed = new Set(['line', 'bar', 'pie', 'doughnut']);
-        if (allowed.has(parsedChart.chartType)) {
-          chartData = parsedChart;
-          finalText = parsedChart.explanation || finalText;
-        }
-      }
-      const ticketIdPattern = /\bCL0*\d{1,6}\b|\bRC0*\d{1,6}\b/gi;
-      if (ticketIdPattern.test(finalText)) {
-        finalText = finalText.replace(ticketIdPattern, '[REDACTED]');
-      }
     }
+
+    let chartData = null;
+    const parsedChart = extractChartJson(finalText);
+    if (parsedChart && parsedChart.data && parsedChart.chartType) {
+      chartData = parsedChart;
+      finalText = parsedChart.explanation || '';
+    }
+
+    finalText = finalText.replace(/\b(CL|RC)\d+\b/gi, '[REDACTED]');
 
     return NextResponse.json({
       response: finalText,
       chartData,
-      sources: usableMatches.slice(0, 3).map(m => ({ source: m.metadata?.source || null, score: typeof m.score === 'number' ? m.score : null })),
+      sources: usableMatches.slice(0, 3).map(m => ({
+        source: m.metadata?.source || null,
+        score: m.score ?? null,
+      })),
     });
-  } catch (error) {
+
+  } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
