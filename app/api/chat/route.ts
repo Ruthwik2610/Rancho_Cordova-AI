@@ -15,13 +15,15 @@ const NO_ANSWER_FALLBACK =
   "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope.";
 
 const DOMAIN_KEYWORDS =
-  /(rancho|cordova|smud|city|utility|power|electric|billing|department|service|permit|park|recreation|streetlight|outage)/i;
+  /(rancho|cordova|smud|city|utility|power|electric|billing|department|service|permit|park|recreation|streetlight|outage|ticket|request)/i;
 
 const PRIVACY_PATTERN =
   /\b(personal billing|billing details|payment history|full details|address|phone number|ssn|social security)\b/i;
 
 const REFUSAL_PATTERN =
-  /i cannot answer|i can'?t answer|not provided in the context|no information available|i do not have that information/i;
+  /i cannot answer|i can'?t answer|not provided in the context|no information available/i;
+
+const TICKET_ID_PATTERN = /\bCL0*\d+\b/i;
 
 const extractEmbedding = (obj: any): number[] | null => {
   if (Array.isArray(obj) && obj.length > 0) {
@@ -39,7 +41,6 @@ const extractChartJson = (text: string): any | null => {
   const idx = text.indexOf('"type": "chart"') >= 0
     ? text.indexOf('"type": "chart"')
     : text.indexOf('"type":"chart"');
-
   if (idx === -1) return null;
 
   let start = text.lastIndexOf('{', idx);
@@ -55,9 +56,7 @@ const extractChartJson = (text: string): any | null => {
         try {
           const parsed = JSON.parse(text.slice(start, i + 1));
           if (parsed?.type === 'chart') return parsed;
-        } catch {
-          return null;
-        }
+        } catch {}
       }
     }
   }
@@ -76,13 +75,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
-    if (PRIVACY_PATTERN.test(message) || !DOMAIN_KEYWORDS.test(message)) {
+    if (PRIVACY_PATTERN.test(message)) {
       return NextResponse.json({
         response: NO_ANSWER_FALLBACK,
         chartData: null,
         sources: [],
       });
     }
+
+    if (!DOMAIN_KEYWORDS.test(message)) {
+      return NextResponse.json({
+        response: NO_ANSWER_FALLBACK,
+        chartData: null,
+        sources: [],
+      });
+    }
+
+    const isTicketQuery = TICKET_ID_PATTERN.test(message);
+    const isAggregateQuery =
+      /\b(most|common|trend|increasing|distribution|breakdown|summary|concern)\b/i.test(message);
+    const isVisualizationQuery =
+      /\b(chart|graph|pie|bar|plot|visualize)\b/i.test(message);
 
     const hfResp = await fetch(
       'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction',
@@ -96,18 +109,10 @@ export async function POST(req: NextRequest) {
       }
     );
 
-    if (hfResp.status === 503) {
-      return NextResponse.json({ error: 'Model loading', estimated_time: 20 }, { status: 503 });
-    }
-
-    if (!hfResp.ok) {
-      throw new Error('Embedding generation failed');
-    }
+    if (!hfResp.ok) throw new Error('Embedding failed');
 
     const queryVector = extractEmbedding(await hfResp.json());
-    if (!queryVector || queryVector.length === 0) {
-      throw new Error('Invalid embedding format');
-    }
+    if (!queryVector) throw new Error('Invalid embedding');
 
     const pc = new Pinecone({ apiKey: PINECONE_API_KEY });
     const index = pc.index(PINECONE_INDEX_NAME);
@@ -131,44 +136,59 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const isChartRequest = /\b(chart|graph|plot|compare|trend|distribution|pie|bar)\b/i.test(message);
-    const isNumericQuery = /\b(kwh|usage|average|total|month|year|rate|consumption)\b/i.test(message);
-    const isDirectoryQuery = /\b(phone|email|contact|department|office|address)\b/i.test(message);
-
-    let filteredMatches = matches;
-
-    if (isNumericQuery || isChartRequest) {
-      filteredMatches = matches.filter(m => typeof m.metadata?.text === 'string' && /\d/.test(m.metadata.text));
-    }
-
-    if (isDirectoryQuery) {
-      filteredMatches = matches.filter(m =>
-        typeof m.metadata?.text === 'string' &&
-        /@|\d{3}[-.\s]?\d{3}|suite|ave|street|st\b/i.test(m.metadata.text)
-      );
-    }
-
-    const usableMatches = filteredMatches.length > 0 ? filteredMatches : matches;
-
-    const context = usableMatches
-      .slice(0, 4)
+    const context = matches
+      .slice(0, 5)
       .map(m => m.metadata?.text)
       .filter(Boolean)
       .join('\n');
 
-    const chartInstruction = `IF numerical data is involved respond ONLY with valid JSON.
+    const chartInstruction = `
+If the user asks for a visualization, respond ONLY with JSON.
 
 {
-  "type":"chart",
-  "chartType":"line|bar|pie|doughnut",
-  "title":"Chart Title",
-  "explanation":"Brief explanation",
-  "data":{"labels":[...],"datasets":[...]}
-}`;
+  "type": "chart",
+  "chartType": "pie|bar|line|doughnut",
+  "title": "Chart title",
+  "explanation": "Brief explanation",
+  "data": { "labels": [...], "datasets": [...] }
+}
+`;
 
-    const systemPrompt = isChartRequest
-      ? `You are a Rancho Cordova assistant. Use ONLY the provided context. Do not mention ticket numbers, call IDs, or customer IDs. Summarize trends by category. Context:\n${context}\n${chartInstruction}`
-      : `You are a Rancho Cordova assistant. Use ONLY the provided context. Do not mention ticket numbers, call IDs, or customer IDs. If the answer is not in the context say you cannot answer. Context:\n${context}`;
+    let systemPrompt = '';
+
+    if (isTicketQuery) {
+      systemPrompt = `
+You are a Rancho Cordova assistant.
+This question is about a specific service ticket.
+Answer using the provided context and give the status or resolution clearly.
+Do not mention unrelated records.
+
+Context:
+${context}
+`;
+    } else if (isAggregateQuery || isVisualizationQuery) {
+      systemPrompt = `
+You are a Rancho Cordova assistant.
+Summarize the information by ISSUE CATEGORY only
+(for example: streetlight outage, billing question, power outage).
+Do NOT mention ticket numbers, customer identifiers, or individual records.
+If a chart is requested, group data by category.
+
+Context:
+${context}
+
+${isVisualizationQuery ? chartInstruction : ''}
+`;
+    } else {
+      systemPrompt = `
+You are a Rancho Cordova assistant.
+Answer using the provided context.
+If the answer is not present, say you cannot answer.
+
+Context:
+${context}
+`;
+    }
 
     const groq = new Groq({ apiKey: GROQ_API_KEY });
 
@@ -183,24 +203,22 @@ export async function POST(req: NextRequest) {
     });
 
     let finalText = completion.choices?.[0]?.message?.content?.trim() || '';
+    let chartData = null;
 
     if (REFUSAL_PATTERN.test(finalText) || finalText.length === 0) {
       finalText = NO_ANSWER_FALLBACK;
+    } else {
+      const parsedChart = extractChartJson(finalText);
+      if (parsedChart && parsedChart.data) {
+        chartData = parsedChart;
+        finalText = parsedChart.explanation || '';
+      }
     }
-
-    let chartData = null;
-    const parsedChart = extractChartJson(finalText);
-    if (parsedChart && parsedChart.data && parsedChart.chartType) {
-      chartData = parsedChart;
-      finalText = parsedChart.explanation || '';
-    }
-
-    finalText = finalText.replace(/\b(CL|RC)\d+\b/gi, '[REDACTED]');
 
     return NextResponse.json({
       response: finalText,
       chartData,
-      sources: usableMatches.slice(0, 3).map(m => ({
+      sources: matches.slice(0, 3).map(m => ({
         source: m.metadata?.source || null,
         score: m.score ?? null,
       })),
