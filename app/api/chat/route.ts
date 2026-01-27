@@ -19,10 +19,10 @@ const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY!;
 // --- CONSTANTS ---
 const NO_ANSWER_FALLBACK = "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope.";
 
-// 1. SQL INTENT: Words that strongly suggest Database/Analytics
+// 1. SQL INTENT
 const SQL_INTENT_PATTERN = /\b(count|how many|total|average|avg|sum|trend|stats|statistics|plot|graph|chart|visualize|compare|highest|lowest|usage|kwh|consumption|breakdown|reasons)\b/i;
 
-// 2. VECTOR OVERRIDE: Words that imply Policy/Advice, preventing SQL routing
+// 2. VECTOR OVERRIDE
 const VECTOR_OVERRIDE_PATTERN = /\b(rebate|incentive|program|dishwasher|washing|dryer|appliance|how to|ways to|reduce|save|contact|manager|location|address|phone|email|process|steps|apply|permit)\b/i;
 
 const TICKET_ID_PATTERN = /\bCL0*\d+\b/i;
@@ -134,14 +134,19 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
 
     Task:
     1. If the user asked for a visualization, generate a JSON chart.
-    2. Provide a **Data Insight** as the text response.
+    2. Provide a **Data Insight** as the text response (e.g., "Usage peaked in July").
+    
+    OUTPUT RULES:
+    - Start directly with the insight.
+    - Do NOT use headers like "JSON Chart:" or "Data Insight:".
+    - Do NOT say "Here is the chart".
     
     JSON Format:
     \`\`\`json
     {
       "type": "chart",
       "chartType": "line" | "bar" | "pie" | "doughnut",
-      "title": "Descriptive Title",
+      "title": "Specific Chart Title (e.g. 'Monthly Energy Usage')",
       "explanation": "Brief insight (max 10 words).",
       "data": { 
         "labels": ["Label1", "Label2"], 
@@ -159,10 +164,13 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
   const responseText = summaryCompletion.choices[0]?.message?.content || "";
   const chartData = extractChartJson(responseText);
   
+  // AGGRESSIVE CLEANING
   let cleanText = responseText
-    .replace(/```json[\s\S]*```/g, '')
-    .replace(/\{[\s\S]*\}/g, '')
-    .replace(/Here is (the|a) (chart|graph|visualization|response).*?:/i, '')
+    .replace(/```json[\s\S]*```/g, '') // Remove JSON block
+    .replace(/\{[\s\S]*\}/g, '') // Remove raw JSON objects
+    .replace(/(Here is|I have generated|This is) (a|the) (JSON)?\s*(chart|graph|visualization|response).*?:?/i, '') // Remove "Here is the chart"
+    .replace(/[*#]*\s*JSON Chart\s*[*#]*:?/i, '') // Remove "JSON Chart:" header
+    .replace(/[*#]*\s*Data Insight\s*[*#]*:?/i, '') // Remove "Data Insight:" header
     .trim();
   
   if (!cleanText && chartData) cleanText = "I have visualized the data for you above.";
@@ -212,11 +220,9 @@ async function handleSemanticQuery(message: string, agentType: string) {
     Answer the user's question using ONLY the provided context.
     
     CRITICAL INSTRUCTIONS:
-    1. **Inference Permitted:** If the user asks about "best times" for appliances (washer, dryer, dishwasher), you MUST use "Time-of-Day" rate data. 
+    1. **Inference Permitted:** If the user asks about "best times" for appliances, use "Time-of-Day" rate data. 
        - "Off-Peak" (Low Rate) = Best Time.
-       - "Peak" (High Rate) = Worst Time.
-    2. **Rebate Comparisons:** If asked for "highest incentive", compare the values found in the context.
-    3. **Missing Info:** If the context contains ABSOLUTELY NO relevant info, say: "${NO_ANSWER_FALLBACK}"
+    2. **Missing Info:** If context is missing, say: "${NO_ANSWER_FALLBACK}"
   `;
 
   const completion = await groq.chat.completions.create({
