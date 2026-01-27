@@ -4,23 +4,23 @@ import { streamText, tool, convertToCoreMessages } from 'ai';
 import { z } from 'zod';
 import { createOpenAI } from '@ai-sdk/openai';
 
-// --- VERCEL CONFIGURATION ---
-export const maxDuration = 60; // Allow 60 seconds for complex SQL reasoning
-export const dynamic = 'force-dynamic'; // Prevent static caching
+// --- CONFIGURATION ---
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
 
-// 1. Initialize Clients using Vercel Environment Variables
+// 1. Initialize Supabase
 const supabase = createClient(
   process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! // MUST use Service Role Key for SQL execution
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// 2. Initialize Pinecone
 const pinecone = new Pinecone({
   apiKey: process.env.PINECONE_API_KEY!,
 });
 const pineconeIndex = pinecone.index(process.env.PINECONE_INDEX_NAME!);
 
-// 2. Initialize LLM
-// (Using OpenAI SDK, which works with Groq, OpenAI, Perplexity, etc.)
+// 3. Initialize LLM
 const groq = createOpenAI({
   baseURL: 'https://api.groq.com/openai/v1',
   apiKey: process.env.GROQ_API_KEY,
@@ -43,7 +43,6 @@ async function generateEmbedding(text: string): Promise<number[]> {
 
     if (!response.ok) throw new Error(`HF API Error: ${response.statusText}`);
     const result = await response.json();
-    // Handle HuggingFace API response variations (nested arrays vs flat)
     return Array.isArray(result) && Array.isArray(result[0]) ? result[0] : result;
   } catch (error) {
     console.error("Embedding generation failed:", error);
@@ -51,111 +50,130 @@ async function generateEmbedding(text: string): Promise<number[]> {
   }
 }
 
-// --- MAIN API ROUTE ---
+// --- MAIN API HANDLER ---
 export async function POST(req: Request) {
   try {
     const { messages, agentType = 'customer' } = await req.json();
     const currentDate = new Date().toISOString().split('T')[0];
 
+    // --- DYNAMIC THEME CONFIGURATION ---
+    const isEnergyAgent = agentType === 'energy';
+    const agentName = isEnergyAgent ? 'Energy Advisor' : 'City Services Agent';
+    
+    // Theme colors for Chart.js (Tailwind colors: Green-500 vs Blue-500)
+    const chartColor = isEnergyAgent ? 'rgba(34, 197, 94, 1)' : 'rgba(59, 130, 246, 1)';
+    const chartBg = isEnergyAgent ? 'rgba(34, 197, 94, 0.5)' : 'rgba(59, 130, 246, 0.5)';
+
     // --- SYSTEM PROMPT ---
     const systemPrompt = `
-      You are the AI Assistant for the City of Rancho Cordova and SMUD.
+      You are the **${agentName}** for Rancho Cordova.
       Current Date: ${currentDate}
 
       **YOUR GOAL**:
-      Answer the user's question using the provided tools. 
+      Answer the user's question accurately using the provided tools.
       
       **STRICT FALLBACK RULE**:
-      If the user asks a question that is NOT related to Rancho Cordova, City Services, SMUD, Energy, or the provided data, OR if your tools return no relevant information, you MUST respond EXACTLY with:
+      If the user asks a question unrelated to Rancho Cordova, City Services, SMUD, Energy, or your datasets, respond EXACTLY with:
       "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope."
 
-      **TOOL USAGE GUIDELINES**:
+      **TOOL GUIDELINES**:
       
-      1. USE 'query_database' (SQL) for:
-         - **Diagnostic**: Specific lookups (e.g., "status of ticket CL0019", "usage for account 1001").
-         - **Prescriptive/Predictive**: Trends, aggregations (e.g., "average usage", "most common complaints").
-         - **Visualization**: ANY request for a chart, graph, plot, or trend.
+      1. **query_database (SQL)** - Use for HARD DATA:
+         - Diagnostic: "Status of ticket CL0019", "Usage for account 1001".
+         - Trends: "How many calls last week?", "Average energy usage in May".
+         - Visualization: ANY request for charts, graphs, or visual trends.
          
-         *Database Schema*:
-         - "tickets": columns(call_id, customer_id, created_at, category, agent, resolution)
-         - "energy_usage": columns(customer_id, account_type, month_date, consumption_kwh)
-         - "meter_readings": columns(account_id, reading_time, kwh) (Limit to 100 rows unless aggregating)
+         *Schema Reference*:
+         - "tickets" (call_id, customer_id, created_at, category, agent, resolution)
+         - "energy_usage" (customer_id, account_type, month_date, consumption_kwh)
+         - "meter_readings" (account_id, reading_time, kwh) -> LIMIT queries to 100 rows unless aggregating!
 
-      2. USE 'search_documents' (Vector Search) for:
-         - **Descriptive**: General info (e.g., "Who is the manager?", "Where is the office?", "Rebate details").
-         - **Prescriptive**: Processes (e.g., "How to start service?", "When to run dishwasher").
-         
-      **CHART GENERATION RULES**:
-      - Triggers: If the user asks to "show", "plot", "graph", "visualize", "compare" (visually), or asks for a "trend".
-      - Action: Return a standard text explanation AND a JSON block in this EXACT format at the end:
-        \`\`\`json
-        {
-          "type": "chart",
-          "chartType": "line" | "bar" | "pie",
-          "title": "Descriptive Title",
-          "data": { 
-            "labels": ["Label1", "Label2"], 
-            "datasets": [{ "label": "Series Name", "data": [10, 20] }] 
-          }
+      2. **search_documents (Vector)** - Use for KNOWLEDGE:
+         - Policies: "How to apply for a permit?", "Rebate requirements".
+         - General Info: "Who is the city manager?", "Office location".
+
+      **CHART GENERATION**:
+      If the user wants to "see", "show", "plot", or "graph" data:
+      1. Call 'query_database' to get the numbers.
+      2. In your final text response, include a JSON block EXACTLY like this:
+      
+      \`\`\`json
+      {
+        "type": "chart",
+        "chartType": "line" | "bar" | "pie" | "doughnut",
+        "title": "Clear Descriptive Title",
+        "explanation": "One sentence insight about the data (e.g., 'Usage peaked on Tuesday.').",
+        "data": { 
+          "labels": ["Jan", "Feb", "Mar"], 
+          "datasets": [{ 
+            "label": "Metric Name", 
+            "data": [10, 25, 15],
+            "backgroundColor": "${chartBg}", 
+            "borderColor": "${chartColor}"
+          }] 
         }
-        \`\`\`
+      }
+      \`\`\`
     `;
 
     // --- STREAMING LOGIC ---
     const result = streamText({
-      model: groq('llama-3.3-70b-versatile'), // Or 'gpt-4o' if using OpenAI
+      model: groq('llama-3.3-70b-versatile'),
       system: systemPrompt,
       messages: convertToCoreMessages(messages),
-      maxSteps: 4, // Allow AI to retry SQL if it fails initially
+      maxSteps: 5, 
       
       tools: {
-        // --- TOOL 1: SQL DATABASE (Hard Data & Trends) ---
+        // --- TOOL 1: SQL DATABASE ---
         query_database: tool({
-          description: 'Executes a SQL query for specific records, counts, trends, or energy stats.',
+          description: 'Executes SQL for trends, stats, or specific records.',
           parameters: z.object({
             query: z.string().describe(`
-              Valid PostgreSQL query. 
-              - For tickets: SELECT * FROM tickets WHERE call_id = '...'
-              - For trends: GROUP BY date_trunc('day', created_at)
-              - For energy: SELECT SUM(consumption_kwh) FROM energy_usage...
+              PostgreSQL query. 
+              - Trends: GROUP BY date_trunc('day', created_at)
+              - Aggregations: SUM(consumption_kwh), COUNT(call_id)
+              - Lookups: WHERE call_id = '...'
             `),
-            explanation: z.string().describe('Briefly explain what you are checking.'),
+            explanation: z.string().describe('Explanation of the query logic.'),
           }),
           execute: async ({ query }) => {
-            console.log(`[SQL Tool] ${query}`);
-            
-            // Execute using the RPC function we created in Supabase
+            console.log(`[SQL] ${query}`);
             const { data, error } = await supabase.rpc('execute_sql', { query_text: query });
             
-            if (error) return `SQL Error: ${error.message}. Try correcting the table/column names.`;
-            if (!data || data.length === 0) return "No records found in the database.";
+            if (error) return `SQL Error: ${error.message}. Check schema and retry.`;
+            if (!data || data.length === 0) return "Database returned no records.";
             
             return JSON.stringify(data);
           },
         }),
 
-        // --- TOOL 2: KNOWLEDGE BASE (Text & Policies) ---
+        // --- TOOL 2: KNOWLEDGE BASE ---
         search_documents: tool({
-          description: 'Searches for policies, office locations, managers, rebates, and general guides.',
+          description: 'Searches policies, rules, and general info.',
           parameters: z.object({
-            query: z.string().describe('The semantic search terms.'),
+            query: z.string().describe('Semantic search query.'),
           }),
           execute: async ({ query }) => {
-            console.log(`[Vector Tool] ${query}`);
+            console.log(`[Vector] ${query}`);
             const vector = await generateEmbedding(query);
-            if (!vector.length) return "Error: Could not generate embedding.";
+            if (!vector.length) return "Error generating embedding.";
 
+            // Filter context based on the active agent (optional optimization)
+            // If your Pinecone metadata has an 'agent' field, this improves accuracy.
+            const filter = isEnergyAgent 
+              ? { agent: { '$in': ['energy', 'general'] } } 
+              : { agent: { '$in': ['customer', 'general'] } };
+
+            // Note: If you haven't tagged metadata with 'agent', remove the 'filter' property below.
             const searchRes = await pineconeIndex.query({
               vector: vector,
               topK: 5,
               includeMetadata: true,
-              // Optional: Filter based on agent type if your metadata has 'agent' field
-              // filter: { agent: agentType === 'energy' ? 'energy' : 'customer' } 
+              // filter: filter // Uncomment this if you have agent tags in Pinecone
             });
 
             if (!searchRes.matches.length) return "No relevant documents found.";
 
-            // Return the text chunks to the LLM
             return searchRes.matches
               .map(m => `[Source: ${m.metadata?.source}] ${m.metadata?.text}`)
               .join('\n\n');
@@ -167,7 +185,7 @@ export async function POST(req: Request) {
     return result.toDataStreamResponse();
 
   } catch (error: any) {
-    console.error("Route Error:", error);
+    console.error("API Error:", error);
     return new Response(JSON.stringify({ error: error.message }), { status: 500 });
   }
 }
