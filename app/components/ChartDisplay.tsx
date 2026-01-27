@@ -46,7 +46,6 @@ export interface ChartData {
 }
 
 // --- 1. EXPANDED COLOR PALETTES ---
-// A rich set of gradients inspired by modern UI frameworks (Tailwind/Stripe/Apple)
 const PALETTES = [
   { // Ocean Blue
     name: 'ocean',
@@ -91,7 +90,6 @@ const PALETTES = [
 ];
 
 // Helper: Pick a palette deterministically based on title text
-// This ensures "Energy" always gets the same color, but "Tickets" gets a different one.
 const getPalette = (title: string) => {
   let hash = 0;
   for (let i = 0; i < title.length; i++) {
@@ -109,7 +107,6 @@ export default function ChartDisplay({ chartData }: { chartData: ChartData }) {
   const theme = getPalette(chartData.title);
 
   // 2. Determine Size based on Type
-  // Trends (Line/Bar) need WIDTH. Distribution (Pie) needs COMPACTNESS.
   const isTrend = chartData.chartType === 'line' || chartData.chartType === 'bar';
   
   const containerClasses = isTrend 
@@ -219,7 +216,8 @@ export default function ChartDisplay({ chartData }: { chartData: ChartData }) {
       case 'line': return <Line ref={chartRef} options={options as any} data={data} />;
       case 'bar': return <Bar ref={chartRef} options={options as any} data={data} />;
       case 'pie': return <Pie ref={chartRef} options={options as any} data={data} />;
-      case 'doughnut': return <Doughnut ref={chartRef} options={{...options, cutout: '70%'}} data={data} />;
+      // FIX: Added 'as any' to the options object here to fix the TypeScript error
+      case 'doughnut': return <Doughnut ref={chartRef} options={{...options, cutout: '70%'} as any} data={data} />;
       default: return null;
     }
   };
