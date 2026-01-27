@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+]import { NextRequest, NextResponse } from 'next/server';
 import { Pinecone } from '@pinecone-database/pinecone';
 import { createClient } from '@supabase/supabase-js';
 import Groq from 'groq-sdk';
@@ -20,6 +20,9 @@ const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY!;
 const NO_ANSWER_FALLBACK =
   "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope.";
 
+// Regex to route to SQL (Analytics) vs Vector (Text)
+// "Usage", "kWh", "Trend" -> SQL
+// "When to", "How to", "Policy" -> Vector
 const SQL_INTENT_PATTERN = /\b(count|how many|total|average|avg|trend|stats|statistics|plot|graph|chart|visualize|compare|highest|lowest|usage|kwh|consumption|breakdown|reasons)\b/i;
 const TICKET_ID_PATTERN = /\bCL0*\d+\b/i;
 
@@ -67,13 +70,14 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
   const currentDate = new Date().toISOString().split('T')[0];
 
   // 1. Generate SQL
+  // We explicitly list values (Residential/Commercial) to fix case-sensitivity
   const sqlSystemPrompt = `
     You are a PostgreSQL Expert.
     Current Date: ${currentDate}
     
     Table Schema:
     - tickets (call_id, customer_id, created_at, category, agent, resolution)
-      * category examples: 'Billing question', 'Outage report', 'Service start request'
+      * category examples: 'Billing question', 'Outage report'
     
     - energy_usage (customer_id, account_type, month_date, consumption_kwh)
       * account_type values: 'Residential', 'Commercial' (Use Exact Case!)
@@ -84,10 +88,10 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
     Goal: Write a SQL query for the user's question.
     Rules:
     - FOR TRENDS: Use GROUP BY date_trunc('day', created_at)
-    - FOR PIE CHARTS/BREAKDOWNS: Use GROUP BY category (tickets) or account_type (energy).
+    - FOR PIE CHARTS: Use GROUP BY category (tickets) or account_type (energy).
     - FOR AVERAGES: Use AVG(consumption_kwh)
     - DO NOT use a semicolon (;) at the end.
-    - Return ONLY the SQL string. No markdown, no explanations.
+    - Return ONLY the SQL string. No markdown.
   `;
 
   const sqlCompletion = await groq.chat.completions.create({
@@ -102,7 +106,7 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
   // Clean the SQL
   let query = sqlCompletion.choices[0]?.message?.content || "";
   query = query.replace(/```sql|```/gi, '').trim(); 
-  query = query.replace(/;+\s*$/, ''); 
+  query = query.replace(/;+\s*$/, ''); // Remove trailing semicolon
 
   if (!query) throw new Error("Failed to generate SQL");
   console.log("Executing SQL:", query);
@@ -129,7 +133,6 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
   const chartColor = isEnergy ? 'rgba(34, 197, 94, 1)' : 'rgba(59, 130, 246, 1)';
   const chartBg = isEnergy ? 'rgba(34, 197, 94, 0.5)' : 'rgba(59, 130, 246, 0.5)';
 
-  // --- UPDATED CHART PROMPT ---
   const chartPrompt = `
     You are a Data Analyst.
     User Question: "${message}"
@@ -140,10 +143,10 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
     2. If the user asked for a "trend", "chart", "plot", "graph", or "breakdown", generate a JSON chart.
     
     OUTPUT RULES:
-    - If NO chart is requested, return ONLY the text summary. Do NOT mention that a chart was not generated. Do NOT explain why.
+    - If NO chart is requested, return ONLY the text summary. Do NOT mention that a chart was not generated.
     - If a chart IS requested, your text response must be extremely brief (1 short sentence).
     
-    JSON Format (Only if chart requested):
+    JSON Format:
     \`\`\`json
     {
       "type": "chart",
@@ -171,7 +174,7 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
   const responseText = summaryCompletion.choices[0]?.message?.content || "";
   const chartData = extractChartJson(responseText);
   
-  // Clean text by removing JSON block
+  // Clean text
   let cleanText = responseText.replace(/```json[\s\S]*```/g, '').replace(/\{[\s\S]*\}/g, '').trim();
   
   if (!cleanText && chartData) cleanText = "Here is the visualization of the data.";
@@ -181,15 +184,17 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
 
 // --- HANDLER B: SEMANTIC (Vector) ---
 async function handleSemanticQuery(message: string, agentType: string) {
+  // 1. Generate Embedding
   const vector = await generateEmbedding(message);
   if (!vector.length) return { response: "I'm having trouble accessing my knowledge base.", chartData: null };
 
+  // 2. Pinecone Search
   const pc = new Pinecone({ apiKey: PINECONE_API_KEY });
   const index = pc.index(PINECONE_INDEX_NAME);
   
   const searchRes = await index.query({
     vector,
-    topK: 5,
+    topK: 6,
     includeMetadata: true
   });
 
@@ -198,6 +203,7 @@ async function handleSemanticQuery(message: string, agentType: string) {
 
   const context = matches.map(m => m.metadata?.text).join('\n---\n');
 
+  // 3. Generate Answer
   const systemPrompt = `
     You are the ${agentType === 'energy' ? 'Energy Advisor' : 'City Services Agent'}.
     Answer based strictly on the context below.
