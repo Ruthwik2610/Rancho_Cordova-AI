@@ -23,7 +23,8 @@ const NO_ANSWER_FALLBACK =
 // 1. SQL INTENT: Words that strongly suggest Database/Analytics
 const SQL_INTENT_PATTERN = /\b(count|how many|total|average|avg|sum|trend|stats|statistics|plot|graph|chart|visualize|compare|highest|lowest|usage|kwh|consumption|breakdown|reasons)\b/i;
 
-// 2. VECTOR OVERRIDE: Words that imply Policy/Advice/Text, even if they contain "highest" or "usage"
+// 2. VECTOR OVERRIDE (THE HYBRID ROUTER): 
+// Words that imply Policy/Advice/Text, even if the query contains "highest" or "usage".
 // Example: "Highest rebate" -> Vector (Rebate text), NOT SQL.
 // Example: "How to reduce usage" -> Vector (Advice), NOT SQL.
 const VECTOR_OVERRIDE_PATTERN = /\b(rebate|incentive|program|dishwasher|washing|dryer|appliance|how to|ways to|reduce|save|contact|manager|location|address|phone|email|process|steps|apply|permit)\b/i;
@@ -208,7 +209,9 @@ async function handleSemanticQuery(message: string, agentType: string) {
   const searchRes = await index.query({
     vector,
     topK: 15, // High topK to ensure we capture spread-out CSV rows (e.g. all rate seasons)
-    includeMetadata: true
+    includeMetadata: true,
+    // Strict Filtering: Only look at documents for this agent to reduce noise
+    filter: { agent: agentType } 
   });
 
   const matches = searchRes.matches || [];
@@ -263,7 +266,11 @@ export async function POST(req: NextRequest) {
 
     let result;
     
-    // ROUTING LOGIC:
+    // ROUTING LOGIC (The Hybrid Architecture):
+    // 1. Specific Ticket ID -> SQL
+    // 2. Analytics Keywords ("total", "count") -> SQL
+    // 3. EXCEPTION: If keywords like "rebate", "how to", "reduce" are present -> Force VECTOR
+    //    (This prevents "Highest rebate" from incorrectly going to SQL)
     
     if (isTicketLookup || (isAnalytics && !isVectorOverride)) {
       console.log(`[Router] SQL Path for: "${message}"`);
