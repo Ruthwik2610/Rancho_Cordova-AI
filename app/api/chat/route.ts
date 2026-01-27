@@ -25,8 +25,6 @@ const SQL_INTENT_PATTERN = /\b(count|how many|total|average|avg|sum|trend|stats|
 
 // 2. VECTOR OVERRIDE (THE HYBRID ROUTER): 
 // Words that imply Policy/Advice/Text, even if the query contains "highest" or "usage".
-// Example: "Highest rebate" -> Vector (Rebate text), NOT SQL.
-// Example: "How to reduce usage" -> Vector (Advice), NOT SQL.
 const VECTOR_OVERRIDE_PATTERN = /\b(rebate|incentive|program|dishwasher|washing|dryer|appliance|how to|ways to|reduce|save|contact|manager|location|address|phone|email|process|steps|apply|permit)\b/i;
 
 const TICKET_ID_PATTERN = /\bCL0*\d+\b/i;
@@ -145,12 +143,13 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
     Data: ${JSON.stringify(data).slice(0, 4000)}
 
     Task:
-    1. Summarize the answer clearly based on the data.
-    2. If the user asked for a "trend", "chart", "plot", "graph", or "breakdown", generate a JSON chart.
+    1. If the user asked for a visualization (chart, plot, graph, trend), generate a JSON chart.
+    2. Provide a **Data Insight** as the text response (e.g., "Usage peaked in July at 400 kWh").
     
-    OUTPUT RULES:
-    - If NO chart is requested, return ONLY the text summary.
-    - If a chart IS requested, your text response must be extremely brief.
+    CRITICAL OUTPUT RULES:
+    - Do NOT say "Here is a brief text response" or "Here is the chart".
+    - Do NOT describe the JSON format.
+    - JUST state the insight directly.
     
     JSON Format:
     \`\`\`json
@@ -180,8 +179,15 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
   const responseText = summaryCompletion.choices[0]?.message?.content || "";
   const chartData = extractChartJson(responseText);
   
-  let cleanText = responseText.replace(/```json[\s\S]*```/g, '').replace(/\{[\s\S]*\}/g, '').trim();
-  if (!cleanText && chartData) cleanText = "Here is the visualization of the data.";
+  // Clean text: Remove the JSON block and any "Here is..." prefixes that might slip through
+  let cleanText = responseText
+    .replace(/```json[\s\S]*```/g, '')
+    .replace(/\{[\s\S]*\}/g, '')
+    .replace(/Here is (the|a) (chart|graph|visualization|response).*?:/i, '') // Extra cleaning layer
+    .trim();
+  
+  // Default fallback if text is empty but chart exists
+  if (!cleanText && chartData) cleanText = "I have visualized the data for you above.";
 
   return { response: cleanText, chartData, sources: [{ source: "Live Database", score: 1 }] };
 }
@@ -189,8 +195,7 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
 // --- HANDLER B: SEMANTIC (Vector) ---
 async function handleSemanticQuery(message: string, agentType: string) {
   
-  // 1. QUERY EXPANSION (The "Dishwasher" & "Process" Fix)
-  // This helps Vector Search find relevant rows even if vocabulary differs.
+  // 1. QUERY EXPANSION
   let searchTerms = message;
   if (agentType === 'energy') {
     searchTerms += " SMUD Time-of-Day rates peak off-peak electricity cost rebates incentive";
@@ -208,9 +213,8 @@ async function handleSemanticQuery(message: string, agentType: string) {
   
   const searchRes = await index.query({
     vector,
-    topK: 15, // High topK to ensure we capture spread-out CSV rows (e.g. all rate seasons)
+    topK: 15,
     includeMetadata: true,
-    // Strict Filtering: Only look at documents for this agent to reduce noise
     filter: { agent: agentType } 
   });
 
@@ -233,7 +237,7 @@ async function handleSemanticQuery(message: string, agentType: string) {
     1. **Inference Permitted:** If the user asks about "best times" for appliances (washer, dryer, dishwasher), you MUST use "Time-of-Day" rate data. 
        - "Off-Peak" (Low Rate) = Best Time.
        - "Peak" (High Rate) = Worst Time.
-    2. **Rebate Comparisons:** If asked for "highest incentive", compare the values found in the context (e.g. from SMUD_Rebates).
+    2. **Rebate Comparisons:** If asked for "highest incentive", compare the values found in the context.
     3. **Missing Info:** If the context contains ABSOLUTELY NO relevant info, say: "${NO_ANSWER_FALLBACK}"
     4. **Tone:** Be helpful, professional, and concise.
   `;
@@ -242,7 +246,7 @@ async function handleSemanticQuery(message: string, agentType: string) {
     model: 'llama-3.3-70b-versatile',
     messages: [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: message } // Pass original message to LLM
+      { role: 'user', content: message } 
     ]
   });
 
@@ -265,12 +269,6 @@ export async function POST(req: NextRequest) {
     const isVectorOverride = VECTOR_OVERRIDE_PATTERN.test(message);
 
     let result;
-    
-    // ROUTING LOGIC (The Hybrid Architecture):
-    // 1. Specific Ticket ID -> SQL
-    // 2. Analytics Keywords ("total", "count") -> SQL
-    // 3. EXCEPTION: If keywords like "rebate", "how to", "reduce" are present -> Force VECTOR
-    //    (This prevents "Highest rebate" from incorrectly going to SQL)
     
     if (isTicketLookup || (isAnalytics && !isVectorOverride)) {
       console.log(`[Router] SQL Path for: "${message}"`);
