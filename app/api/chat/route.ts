@@ -262,6 +262,9 @@ export async function POST(req: NextRequest) {
     const isVectorOverride = VECTOR_OVERRIDE_PATTERN.test(message);
 
     let result;
+    
+    // ROUTING LOGIC:
+    
     if (isTicketLookup || (isAnalytics && !isVectorOverride)) {
       console.log(`[Router] SQL Path for: "${message}"`);
       result = await handleAnalyticsQuery(message, agentType);
