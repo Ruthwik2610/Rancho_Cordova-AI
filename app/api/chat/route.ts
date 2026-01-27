@@ -20,10 +20,8 @@ const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY!;
 const NO_ANSWER_FALLBACK =
   "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope.";
 
-// Regex to route to SQL (Analytics) vs Vector (Text)
-// "Usage", "kWh", "Trend" -> SQL
-// "When to", "How to", "Policy" -> Vector
-const SQL_INTENT_PATTERN = /\b(count|how many|total|average|avg|trend|stats|statistics|plot|graph|chart|visualize|compare|highest|lowest|usage|kwh|consumption|breakdown|reasons)\b/i;
+
+const SQL_INTENT_PATTERN = /\b(count|how many|total|average|avg|sum|trend|stats|statistics|plot|graph|chart|visualize|compare|highest|lowest|usage|kwh|consumption|breakdown|reasons)\b/i;
 const TICKET_ID_PATTERN = /\bCL0*\d+\b/i;
 
 // --- INITIALIZE CLIENTS ---
@@ -70,26 +68,29 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
   const currentDate = new Date().toISOString().split('T')[0];
 
   // 1. Generate SQL
-  // We explicitly list values (Residential/Commercial) to fix case-sensitivity
+  // Defines strict schema matching the Supabase upload script
   const sqlSystemPrompt = `
     You are a PostgreSQL Expert.
-    Current Date: ${currentDate}
+    Current Date: ${currentDate} (Note: Data in DB is mostly from 2024-2025)
     
     Table Schema:
     - tickets (call_id, customer_id, created_at, category, agent, resolution)
-      * category examples: 'Billing question', 'Outage report'
+      * category examples: 'Billing question', 'Outage report', 'High usage inquiry'
+      * resolution examples: 'Explained...', 'Logged outage...'
     
     - energy_usage (customer_id, account_type, month_date, consumption_kwh)
-      * account_type values: 'Residential', 'Commercial' (Use Exact Case!)
+      * account_type values: 'Residential', 'Commercial' (Case Sensitive!)
+      * month_date format: YYYY-MM-DD (e.g., '2024-05-01')
+      * To filter by Month Name (e.g. 'May'), use: WHERE TO_CHAR(month_date, 'Month') LIKE 'May%'
     
     - meter_readings (account_id, reading_time, kwh)
-      * High frequency data. Limit to 100 rows if querying directly.
+      * High frequency data (hourly).
     
     Goal: Write a SQL query for the user's question.
     Rules:
-    - FOR TRENDS: Use GROUP BY date_trunc('day', created_at)
+    - FOR TRENDS: Use GROUP BY date_trunc('day', created_at) OR month_date.
     - FOR PIE CHARTS: Use GROUP BY category (tickets) or account_type (energy).
-    - FOR AVERAGES: Use AVG(consumption_kwh)
+    - FOR AVERAGES: Use AVG(consumption_kwh).
     - DO NOT use a semicolon (;) at the end.
     - Return ONLY the SQL string. No markdown.
   `;
@@ -130,7 +131,7 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
 
   // 3. Summarize & Chart
   const isEnergy = agentType === 'energy';
-  const chartColor = isEnergy ? 'rgba(34, 197, 94, 1)' : 'rgba(59, 130, 246, 1)';
+  const chartColor = isEnergy ? 'rgba(34, 197, 94, 1)' : 'rgba(59, 130, 246, 1)'; // Green vs Blue
   const chartBg = isEnergy ? 'rgba(34, 197, 94, 0.5)' : 'rgba(59, 130, 246, 0.5)';
 
   const chartPrompt = `
@@ -143,7 +144,7 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
     2. If the user asked for a "trend", "chart", "plot", "graph", or "breakdown", generate a JSON chart.
     
     OUTPUT RULES:
-    - If NO chart is requested, return ONLY the text summary. Do NOT mention that a chart was not generated.
+    - If NO chart is requested, return ONLY the text summary.
     - If a chart IS requested, your text response must be extremely brief (1 short sentence).
     
     JSON Format:
@@ -152,7 +153,7 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
       "type": "chart",
       "chartType": "line" | "bar" | "pie" | "doughnut",
       "title": "Descriptive Title",
-      "explanation": "Brief insight (max 10 words) for the UI highlight box.",
+      "explanation": "Brief insight (max 10 words).",
       "data": { 
         "labels": ["Label1", "Label2"], 
         "datasets": [{ 
@@ -194,23 +195,33 @@ async function handleSemanticQuery(message: string, agentType: string) {
   
   const searchRes = await index.query({
     vector,
-    topK: 6,
+    topK: 10, // Increased to 10 to ensure we catch all relevant rows (rates, rebates, etc.)
     includeMetadata: true
   });
 
   const matches = searchRes.matches || [];
   if (matches.length === 0) return { response: NO_ANSWER_FALLBACK, chartData: null };
 
+  // Format context for LLM
   const context = matches.map(m => m.metadata?.text).join('\n---\n');
 
   // 3. Generate Answer
   const systemPrompt = `
     You are the ${agentType === 'energy' ? 'Energy Advisor' : 'City Services Agent'}.
-    Answer based strictly on the context below.
-    If the info is missing, say: "${NO_ANSWER_FALLBACK}"
-
-    Context:
+    
+    You have access to the following reference data (Context):
     ${context}
+
+    YOUR GOAL:
+    Answer the user's question using ONLY the provided context.
+    
+    CRITICAL INSTRUCTIONS:
+    1. **Inference Permitted:** If the user asks about "best times" for appliances (washer, dryer, dishwasher), you MUST use "Time-of-Day" rate data. 
+       - "Off-Peak" (Low Rate) = Best Time.
+       - "Peak" (High Rate) = Worst Time.
+    2. **Rebate Comparisons:** If asked for "highest incentive", compare the values found in the context.
+    3. **Missing Info:** If the context contains ABSOLUTELY NO relevant info (no rates, no city info), say: "${NO_ANSWER_FALLBACK}"
+    4. **Tone:** Be helpful, professional, and concise.
   `;
 
   const completion = await groq.chat.completions.create({
@@ -239,10 +250,12 @@ export async function POST(req: NextRequest) {
     const isAnalytics = SQL_INTENT_PATTERN.test(message);
 
     let result;
-    if (isAnalytics || isTicketLookup) {
+    // Route to SQL if it's a specific ticket OR a stats question (count, total, usage)
+    if (isTicketLookup || isAnalytics) {
       console.log(`[Router] SQL Path for: "${message}"`);
       result = await handleAnalyticsQuery(message, agentType);
     } else {
+      // Default to Vector Search for "How to", "Where is", "Who is"
       console.log(`[Router] Vector Path for: "${message}"`);
       result = await handleSemanticQuery(message, agentType);
     }
