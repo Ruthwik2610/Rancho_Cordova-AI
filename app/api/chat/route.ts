@@ -1,32 +1,36 @@
-import { createClient } from '@supabase/supabase-js';
+import { NextRequest, NextResponse } from 'next/server';
 import { Pinecone } from '@pinecone-database/pinecone';
-import { streamText, tool, convertToCoreMessages } from 'ai';
-import { z } from 'zod';
-import { createOpenAI } from '@ai-sdk/openai';
+import { createClient } from '@supabase/supabase-js';
+import Groq from 'groq-sdk';
 
 // --- CONFIGURATION ---
-export const maxDuration = 60;
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60; // Allow time for SQL generation
 
-// 1. Initialize Supabase
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// --- ENVIRONMENT VARIABLES ---
+const SUPABASE_URL = process.env.SUPABASE_URL!;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!; // Must be Service Role Key
+const PINECONE_API_KEY = process.env.PINECONE_API_KEY!;
+const PINECONE_INDEX_NAME = process.env.PINECONE_INDEX_NAME || 'rancho-cordova';
+const GROQ_API_KEY = process.env.GROQ_API_KEY!;
+const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY!;
 
-// 2. Initialize Pinecone
-const pinecone = new Pinecone({
-  apiKey: process.env.PINECONE_API_KEY!,
-});
-const pineconeIndex = pinecone.index(process.env.PINECONE_INDEX_NAME!);
+// --- CONSTANTS & REGEX ---
+const NO_ANSWER_FALLBACK =
+  "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope.";
 
-// 3. Initialize LLM
-const groq = createOpenAI({
-  baseURL: 'https://api.groq.com/openai/v1',
-  apiKey: process.env.GROQ_API_KEY,
-});
+// Regex to route to SQL (Analytics) vs Vector (Text)
+const SQL_INTENT_PATTERN = /\b(count|how many|total|average|trend|stats|statistics|plot|graph|chart|visualize|compare|highest|lowest|usage|kwh|consumption)\b/i;
+const TICKET_ID_PATTERN = /\bCL0*\d+\b/i;
 
-// --- HELPER: Generate Embedding ---
+// --- INITIALIZE CLIENTS ---
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const groq = new Groq({ apiKey: GROQ_API_KEY });
+
+// --- HELPER FUNCTIONS ---
+
+// 1. Generate Embedding (HuggingFace)
 async function generateEmbedding(text: string): Promise<number[]> {
   try {
     const response = await fetch(
@@ -34,158 +38,197 @@ async function generateEmbedding(text: string): Promise<number[]> {
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
+          Authorization: `Bearer ${HUGGINGFACE_API_KEY}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ inputs: [text], options: { wait_for_model: true } }),
       }
     );
-
-    if (!response.ok) throw new Error(`HF API Error: ${response.statusText}`);
+    if (!response.ok) return [];
     const result = await response.json();
     return Array.isArray(result) && Array.isArray(result[0]) ? result[0] : result;
-  } catch (error) {
-    console.error("Embedding generation failed:", error);
+  } catch (e) {
+    console.error("Embedding Error:", e);
     return [];
   }
 }
 
-// --- MAIN API HANDLER ---
-export async function POST(req: Request) {
+// 2. Extract JSON for Chart (Parses LLM output for the frontend)
+const extractChartJson = (text: string): any | null => {
+  const jsonMatch = text.match(/```json\n([\s\S]*?)\n```/) || text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return null;
   try {
-    const { messages, agentType = 'customer' } = await req.json();
-    const currentDate = new Date().toISOString().split('T')[0];
+    const candidate = jsonMatch[1] || jsonMatch[0];
+    const parsed = JSON.parse(candidate);
+    if (parsed.type === 'chart') return parsed;
+  } catch (e) { return null; }
+  return null;
+};
 
-    // --- DYNAMIC THEME CONFIGURATION ---
-    const isEnergyAgent = agentType === 'energy';
-    const agentName = isEnergyAgent ? 'Energy Advisor' : 'City Services Agent';
+// --- HANDLERS ---
+
+// A. Handle SQL/Analytics Questions
+async function handleAnalyticsQuery(message: string, agentType: string) {
+  const currentDate = new Date().toISOString().split('T')[0];
+
+  // Step 1: Generate SQL
+  const sqlSystemPrompt = `
+    You are a PostgreSQL Expert.
+    Current Date: ${currentDate}
     
-    // Theme colors for Chart.js (Tailwind colors: Green-500 vs Blue-500)
-    const chartColor = isEnergyAgent ? 'rgba(34, 197, 94, 1)' : 'rgba(59, 130, 246, 1)';
-    const chartBg = isEnergyAgent ? 'rgba(34, 197, 94, 0.5)' : 'rgba(59, 130, 246, 0.5)';
+    Table Schema:
+    - tickets (call_id, customer_id, created_at, category, agent, resolution)
+    - energy_usage (customer_id, account_type, month_date, consumption_kwh)
+    - meter_readings (account_id, reading_time, kwh)
+    
+    Goal: Write a SQL query to answer the user's question.
+    - If asking for trends, use GROUP BY date_trunc('day', created_at).
+    - If asking for energy stats, query 'energy_usage'.
+    - Return ONLY the SQL string. No markdown, no explanation.
+  `;
 
-    // --- SYSTEM PROMPT ---
-    const systemPrompt = `
-      You are the **${agentName}** for Rancho Cordova.
-      Current Date: ${currentDate}
+  const sqlCompletion = await groq.chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
+    messages: [
+      { role: 'system', content: sqlSystemPrompt },
+      { role: 'user', content: message }
+    ],
+    temperature: 0
+  });
 
-      **YOUR GOAL**:
-      Answer the user's question accurately using the provided tools.
-      
-      **STRICT FALLBACK RULE**:
-      If the user asks a question unrelated to Rancho Cordova, City Services, SMUD, Energy, or your datasets, respond EXACTLY with:
-      "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope."
+  const query = sqlCompletion.choices[0]?.message?.content?.replace(/```sql|```/g, '').trim();
 
-      **TOOL GUIDELINES**:
-      
-      1. **query_database (SQL)** - Use for HARD DATA:
-         - Diagnostic: "Status of ticket CL0019", "Usage for account 1001".
-         - Trends: "How many calls last week?", "Average energy usage in May".
-         - Visualization: ANY request for charts, graphs, or visual trends.
-         
-         *Schema Reference*:
-         - "tickets" (call_id, customer_id, created_at, category, agent, resolution)
-         - "energy_usage" (customer_id, account_type, month_date, consumption_kwh)
-         - "meter_readings" (account_id, reading_time, kwh) -> LIMIT queries to 100 rows unless aggregating!
+  if (!query) throw new Error("Failed to generate SQL");
 
-      2. **search_documents (Vector)** - Use for KNOWLEDGE:
-         - Policies: "How to apply for a permit?", "Rebate requirements".
-         - General Info: "Who is the city manager?", "Office location".
+  // Step 2: Run SQL on Supabase
+  const { data, error } = await supabase.rpc('execute_sql', { query_text: query });
 
-      **CHART GENERATION**:
-      If the user wants to "see", "show", "plot", or "graph" data:
-      1. Call 'query_database' to get the numbers.
-      2. In your final text response, include a JSON block EXACTLY like this:
-      
-      \`\`\`json
-      {
-        "type": "chart",
-        "chartType": "line" | "bar" | "pie" | "doughnut",
-        "title": "Clear Descriptive Title",
-        "explanation": "One sentence insight about the data (e.g., 'Usage peaked on Tuesday.').",
-        "data": { 
-          "labels": ["Jan", "Feb", "Mar"], 
-          "datasets": [{ 
-            "label": "Metric Name", 
-            "data": [10, 25, 15],
-            "backgroundColor": "${chartBg}", 
-            "borderColor": "${chartColor}"
-          }] 
-        }
-      }
-      \`\`\`
-    `;
+  if (error) {
+    console.error("SQL Error:", error);
+    return { response: "I couldn't analyze the data due to a query error.", chartData: null };
+  }
 
-    // --- STREAMING LOGIC ---
-    const result = streamText({
-      model: groq('llama-3.3-70b-versatile'),
-      system: systemPrompt,
-      messages: convertToCoreMessages(messages),
-      maxSteps: 5, 
-      
-      tools: {
-        // --- TOOL 1: SQL DATABASE ---
-        query_database: tool({
-          description: 'Executes SQL for trends, stats, or specific records.',
-          parameters: z.object({
-            query: z.string().describe(`
-              PostgreSQL query. 
-              - Trends: GROUP BY date_trunc('day', created_at)
-              - Aggregations: SUM(consumption_kwh), COUNT(call_id)
-              - Lookups: WHERE call_id = '...'
-            `),
-            explanation: z.string().describe('Explanation of the query logic.'),
-          }),
-          execute: async ({ query }) => {
-            console.log(`[SQL] ${query}`);
-            const { data, error } = await supabase.rpc('execute_sql', { query_text: query });
-            
-            if (error) return `SQL Error: ${error.message}. Check schema and retry.`;
-            if (!data || data.length === 0) return "Database returned no records.";
-            
-            return JSON.stringify(data);
-          },
-        }),
+  if (!data || data.length === 0) {
+    return { response: "I checked the database, but found no records matching your request.", chartData: null };
+  }
 
-        // --- TOOL 2: KNOWLEDGE BASE ---
-        search_documents: tool({
-          description: 'Searches policies, rules, and general info.',
-          parameters: z.object({
-            query: z.string().describe('Semantic search query.'),
-          }),
-          execute: async ({ query }) => {
-            console.log(`[Vector] ${query}`);
-            const vector = await generateEmbedding(query);
-            if (!vector.length) return "Error generating embedding.";
+  // Step 3: Interpret Data & Generate Chart JSON
+  const chartPrompt = `
+    You are a Data Analyst.
+    User Question: "${message}"
+    Data Retrieved: ${JSON.stringify(data).slice(0, 3000)} -- (Truncated if too long)
 
-            // Filter context based on the active agent (optional optimization)
-            // If your Pinecone metadata has an 'agent' field, this improves accuracy.
-            const filter = isEnergyAgent 
-              ? { agent: { '$in': ['energy', 'general'] } } 
-              : { agent: { '$in': ['customer', 'general'] } };
+    Task:
+    1. Summarize the findings briefly.
+    2. If the user asked to visualize/plot/show trend, generate a JSON chart.
+    
+    Response Format:
+    Return a text summary. IF a chart is needed, append this JSON block at the end:
+    \`\`\`json
+    {
+      "type": "chart",
+      "chartType": "line" | "bar" | "pie",
+      "title": "Chart Title",
+      "explanation": "Brief insight for the UI.",
+      "data": { "labels": [...], "datasets": [{ "label": "...", "data": [...] }] }
+    }
+    \`\`\`
+  `;
 
-            // Note: If you haven't tagged metadata with 'agent', remove the 'filter' property below.
-            const searchRes = await pineconeIndex.query({
-              vector: vector,
-              topK: 5,
-              includeMetadata: true,
-              // filter: filter // Uncomment this if you have agent tags in Pinecone
-            });
+  const summaryCompletion = await groq.chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
+    messages: [{ role: 'system', content: chartPrompt }]
+  });
 
-            if (!searchRes.matches.length) return "No relevant documents found.";
+  const responseText = summaryCompletion.choices[0]?.message?.content || "";
+  const chartData = extractChartJson(responseText);
 
-            return searchRes.matches
-              .map(m => `[Source: ${m.metadata?.source}] ${m.metadata?.text}`)
-              .join('\n\n');
-          },
-        }),
-      },
-    });
+  // Clean raw JSON from text to avoid duplication in UI
+  const cleanText = responseText.replace(/```json[\s\S]*```/g, '').trim();
 
-    return result.toDataStreamResponse();
+  return { response: cleanText, chartData, sources: [{ source: "Live Database", score: 1.0 }] };
+}
+
+// B. Handle Text/Vector Questions
+async function handleSemanticQuery(message: string, agentType: string) {
+  // Step 1: Search Pinecone
+  const vector = await generateEmbedding(message);
+  if (!vector.length) throw new Error("Embedding failed");
+
+  const pc = new Pinecone({ apiKey: PINECONE_API_KEY });
+  const index = pc.index(PINECONE_INDEX_NAME);
+
+  // Optional: Filter by agent type if your metadata supports it
+  // const filter = agentType === 'energy' ? { agent: { '$in': ['energy', 'general'] } } : undefined;
+
+  const searchRes = await index.query({
+    vector,
+    topK: 5,
+    includeMetadata: true,
+    // filter
+  });
+
+  const matches = searchRes.matches || [];
+  if (matches.length === 0) return { response: NO_ANSWER_FALLBACK, chartData: null };
+
+  const context = matches.map(m => m.metadata?.text).join('\n---\n');
+
+  // Step 2: Generate Answer
+  const systemPrompt = `
+    You are the ${agentType === 'energy' ? 'Energy Advisor' : 'City Services Agent'}.
+    Answer based strictly on the context below.
+    If the info is missing, say: "${NO_ANSWER_FALLBACK}"
+
+    Context:
+    ${context}
+  `;
+
+  const completion = await groq.chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: message }
+    ]
+  });
+
+  return { 
+    response: completion.choices[0]?.message?.content || NO_ANSWER_FALLBACK,
+    chartData: null,
+    sources: matches.slice(0, 3).map(m => ({ source: m.metadata?.source || "Doc", score: m.score }))
+  };
+}
+
+// --- MAIN API ROUTE ---
+export async function POST(req: NextRequest) {
+  try {
+    const { message, agentType = 'customer' } = await req.json();
+
+    if (!message) return NextResponse.json({ error: 'Message required' }, { status: 400 });
+
+    // --- ROUTER LOGIC ---
+    // 1. Check for specific ticket IDs (Force SQL lookup)
+    const isTicketLookup = TICKET_ID_PATTERN.test(message);
+    
+    // 2. Check for Analytics keywords (Force SQL Trends)
+    const isAnalytics = SQL_INTENT_PATTERN.test(message);
+
+    let result;
+
+    if (isAnalytics || isTicketLookup) {
+      console.log(`[Router] SQL Path for: "${message}"`);
+      result = await handleAnalyticsQuery(message, agentType);
+    } else {
+      console.log(`[Router] Vector Path for: "${message}"`);
+      result = await handleSemanticQuery(message, agentType);
+    }
+
+    return NextResponse.json(result);
 
   } catch (error: any) {
     console.error("API Error:", error);
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    return NextResponse.json({ 
+      response: "System encountered an error. Please try again.",
+      error: error.message 
+    }, { status: 500 });
   }
 }
