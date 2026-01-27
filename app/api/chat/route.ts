@@ -17,8 +17,7 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY!;
 const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY!;
 
 // --- CONSTANTS ---
-const NO_ANSWER_FALLBACK =
-  "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope.";
+const NO_ANSWER_FALLBACK = "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope.";
 
 // 1. SQL INTENT: Words that strongly suggest Database/Analytics
 const SQL_INTENT_PATTERN = /\b(count|how many|total|average|avg|sum|trend|stats|statistics|plot|graph|chart|visualize|compare|highest|lowest|usage|kwh|consumption|breakdown|reasons)\b/i;
@@ -78,15 +77,10 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
     
     Table Schema:
     - tickets (call_id, customer_id, created_at, category, agent, resolution)
-      * category examples: 'Billing question', 'Outage report', 'High usage inquiry'
-    
     - energy_usage (customer_id, account_type, month_date, consumption_kwh)
       * account_type: 'Residential', 'Commercial' (Case Sensitive!)
-      * month_date: YYYY-MM-DD (e.g., '2024-05-01')
-      * To filter by 'May', use: TO_CHAR(month_date, 'Month') LIKE '%May%'
-    
+      * month_date: YYYY-MM-DD
     - meter_readings (account_id, reading_time, kwh)
-      * High frequency data. Limit to 100 rows if selecting raw data.
     
     Goal: Write a SQL query for the user's question.
     Rules:
@@ -106,10 +100,8 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
     temperature: 0 
   });
 
-  // Clean the SQL
   let query = sqlCompletion.choices[0]?.message?.content || "";
-  query = query.replace(/```sql|```/gi, '').trim(); 
-  query = query.replace(/;+\s*$/, ''); 
+  query = query.replace(/```sql|```/gi, '').trim().replace(/;+\s*$/, ''); 
 
   if (!query) throw new Error("Failed to generate SQL");
   console.log("Executing SQL:", query);
@@ -124,4 +116,149 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
   
   if (data && !Array.isArray(data) && (data as any).error) {
     console.error("SQL Logic Error:", (data as any).error);
-    return { response: `I couldn't process that query. Database says: ${(data as any).error}`, chart
+    return { 
+      response: `I couldn't process that query. Database says: ${(data as any).error}`, 
+      chartData: null 
+    };
+  }
+
+  if (!data || (Array.isArray(data) && data.length === 0)) {
+    return { response: "I checked the database but found no records matching your criteria.", chartData: null };
+  }
+
+  // 3. Summarize & Chart
+  const chartPrompt = `
+    You are a Data Analyst.
+    User Question: "${message}"
+    Data: ${JSON.stringify(data).slice(0, 4000)}
+
+    Task:
+    1. If the user asked for a visualization, generate a JSON chart.
+    2. Provide a **Data Insight** as the text response.
+    
+    JSON Format:
+    \`\`\`json
+    {
+      "type": "chart",
+      "chartType": "line" | "bar" | "pie" | "doughnut",
+      "title": "Descriptive Title",
+      "explanation": "Brief insight (max 10 words).",
+      "data": { 
+        "labels": ["Label1", "Label2"], 
+        "datasets": [{ "label": "Metric", "data": [10, 20] }] 
+      }
+    }
+    \`\`\`
+  `;
+
+  const summaryCompletion = await groq.chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
+    messages: [{ role: 'system', content: chartPrompt }]
+  });
+
+  const responseText = summaryCompletion.choices[0]?.message?.content || "";
+  const chartData = extractChartJson(responseText);
+  
+  let cleanText = responseText
+    .replace(/```json[\s\S]*```/g, '')
+    .replace(/\{[\s\S]*\}/g, '')
+    .replace(/Here is (the|a) (chart|graph|visualization|response).*?:/i, '')
+    .trim();
+  
+  if (!cleanText && chartData) cleanText = "I have visualized the data for you above.";
+
+  return { response: cleanText, chartData, sources: [{ source: "Live Database", score: 1 }] };
+}
+
+// --- HANDLER B: SEMANTIC (Vector) ---
+async function handleSemanticQuery(message: string, agentType: string) {
+  
+  // 1. QUERY EXPANSION
+  let searchTerms = message;
+  if (agentType === 'energy') {
+    searchTerms += " SMUD Time-of-Day rates peak off-peak electricity cost rebates incentive";
+  } else if (agentType === 'customer') {
+    searchTerms += " city department contact phone location service request process";
+  }
+
+  // 2. Generate Embedding
+  const vector = await generateEmbedding(searchTerms);
+  if (!vector.length) return { response: "I'm having trouble accessing my knowledge base.", chartData: null };
+
+  // 3. Pinecone Search
+  const pc = new Pinecone({ apiKey: PINECONE_API_KEY });
+  const index = pc.index(PINECONE_INDEX_NAME);
+  
+  const searchRes = await index.query({
+    vector,
+    topK: 15,
+    includeMetadata: true,
+    filter: { agent: agentType } 
+  });
+
+  const matches = searchRes.matches || [];
+  if (matches.length === 0) return { response: NO_ANSWER_FALLBACK, chartData: null };
+
+  const context = matches.map(m => m.metadata?.text).join('\n---\n');
+
+  // 4. Generate Answer
+  const systemPrompt = `
+    You are the ${agentType === 'energy' ? 'Energy Advisor' : 'City Services Agent'}.
+    
+    You have access to the following reference data (Context):
+    ${context}
+
+    YOUR GOAL:
+    Answer the user's question using ONLY the provided context.
+    
+    CRITICAL INSTRUCTIONS:
+    1. **Inference Permitted:** If the user asks about "best times" for appliances (washer, dryer, dishwasher), you MUST use "Time-of-Day" rate data. 
+       - "Off-Peak" (Low Rate) = Best Time.
+       - "Peak" (High Rate) = Worst Time.
+    2. **Rebate Comparisons:** If asked for "highest incentive", compare the values found in the context.
+    3. **Missing Info:** If the context contains ABSOLUTELY NO relevant info, say: "${NO_ANSWER_FALLBACK}"
+  `;
+
+  const completion = await groq.chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: message } 
+    ]
+  });
+
+  return { 
+    response: completion.choices[0]?.message?.content || NO_ANSWER_FALLBACK,
+    chartData: null,
+    sources: matches.slice(0, 3).map(m => ({ source: m.metadata?.source || "Doc", score: m.score }))
+  };
+}
+
+// --- MAIN ROUTER ---
+export async function POST(req: NextRequest) {
+  try {
+    const { message, agentType = 'customer' } = await req.json();
+
+    if (!message) return NextResponse.json({ error: 'Message required' }, { status: 400 });
+
+    const isTicketLookup = TICKET_ID_PATTERN.test(message);
+    const isAnalytics = SQL_INTENT_PATTERN.test(message);
+    const isVectorOverride = VECTOR_OVERRIDE_PATTERN.test(message);
+
+    let result;
+    
+    if (isTicketLookup || (isAnalytics && !isVectorOverride)) {
+      console.log(`[Router] SQL Path for: "${message}"`);
+      result = await handleAnalyticsQuery(message, agentType);
+    } else {
+      console.log(`[Router] Vector Path for: "${message}"`);
+      result = await handleSemanticQuery(message, agentType);
+    }
+
+    return NextResponse.json(result);
+
+  } catch (error: any) {
+    console.error("API Error:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
