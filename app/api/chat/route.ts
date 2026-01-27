@@ -1,230 +1,173 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 import { Pinecone } from '@pinecone-database/pinecone';
-import Groq from 'groq-sdk';
+import { streamText, tool, convertToCoreMessages } from 'ai';
+import { z } from 'zod';
+import { createOpenAI } from '@ai-sdk/openai';
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+// --- VERCEL CONFIGURATION ---
+export const maxDuration = 60; // Allow 60 seconds for complex SQL reasoning
+export const dynamic = 'force-dynamic'; // Prevent static caching
 
-const PINECONE_API_KEY = process.env.PINECONE_API_KEY;
-const PINECONE_INDEX_NAME = process.env.PINECONE_INDEX_NAME || 'rancho-cordova';
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
-const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
+// 1. Initialize Clients using Vercel Environment Variables
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY! // MUST use Service Role Key for SQL execution
+);
 
-const NO_ANSWER_FALLBACK =
-  "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope.";
+const pinecone = new Pinecone({
+  apiKey: process.env.PINECONE_API_KEY!,
+});
+const pineconeIndex = pinecone.index(process.env.PINECONE_INDEX_NAME!);
 
-const DOMAIN_KEYWORDS =
-  /(rancho|cordova|smud|city|utility|power|electric|billing|department|service|permit|park|recreation|streetlight|outage|ticket|request)/i;
+// 2. Initialize LLM
+// (Using OpenAI SDK, which works with Groq, OpenAI, Perplexity, etc.)
+const groq = createOpenAI({
+  baseURL: 'https://api.groq.com/openai/v1',
+  apiKey: process.env.GROQ_API_KEY,
+});
 
-const PRIVACY_PATTERN =
-  /\b(personal billing|billing details|payment history|full details|address|phone number|ssn|social security)\b/i;
-
-const REFUSAL_PATTERN =
-  /i cannot answer|i can'?t answer|not provided in the context|no information available/i;
-
-const TICKET_ID_PATTERN = /\bCL0*\d+\b/i;
-
-const extractEmbedding = (obj: any): number[] | null => {
-  if (Array.isArray(obj) && obj.length > 0) {
-    if (Array.isArray(obj[0]) && typeof obj[0][0] === 'number') return obj[0];
-    if (typeof obj[0] === 'number') return obj;
-  }
-  if (obj?.embedding && Array.isArray(obj.embedding)) return obj.embedding;
-  if (obj?.embeddings && Array.isArray(obj.embeddings)) return obj.embeddings[0];
-  const nums = JSON.stringify(obj).match(/-?\d+\.\d+|-?\d+/g);
-  if (nums) return nums.map(Number);
-  return null;
-};
-
-const extractChartJson = (text: string): any | null => {
-  const idx = text.indexOf('"type": "chart"') >= 0
-    ? text.indexOf('"type": "chart"')
-    : text.indexOf('"type":"chart"');
-  if (idx === -1) return null;
-
-  let start = text.lastIndexOf('{', idx);
-  if (start === -1) start = text.indexOf('{');
-  if (start === -1) return null;
-
-  let depth = 0;
-  for (let i = start; i < text.length; i++) {
-    if (text[i] === '{') depth++;
-    else if (text[i] === '}') {
-      depth--;
-      if (depth === 0) {
-        try {
-          const parsed = JSON.parse(text.slice(start, i + 1));
-          if (parsed?.type === 'chart') return parsed;
-        } catch {}
-      }
-    }
-  }
-  return null;
-};
-
-export async function POST(req: NextRequest) {
+// --- HELPER: Generate Embedding ---
+async function generateEmbedding(text: string): Promise<number[]> {
   try {
-    if (!PINECONE_API_KEY || !GROQ_API_KEY || !HUGGINGFACE_API_KEY) {
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
-    }
-
-    const { message, agentType = 'customer' } = await req.json();
-
-    if (!message || typeof message !== 'string') {
-      return NextResponse.json({ error: 'Message is required' }, { status: 400 });
-    }
-
-    if (PRIVACY_PATTERN.test(message)) {
-      return NextResponse.json({
-        response: NO_ANSWER_FALLBACK,
-        chartData: null,
-        sources: [],
-      });
-    }
-
-    if (!DOMAIN_KEYWORDS.test(message)) {
-      return NextResponse.json({
-        response: NO_ANSWER_FALLBACK,
-        chartData: null,
-        sources: [],
-      });
-    }
-
-    const isTicketQuery = TICKET_ID_PATTERN.test(message);
-    const isAggregateQuery =
-      /\b(most|common|trend|increasing|distribution|breakdown|summary|concern)\b/i.test(message);
-    const isVisualizationQuery =
-      /\b(chart|graph|pie|bar|plot|visualize)\b/i.test(message);
-
-    const hfResp = await fetch(
+    const response = await fetch(
       'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction',
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${HUGGINGFACE_API_KEY}`,
+          Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ inputs: [message], options: { wait_for_model: false } }),
+        body: JSON.stringify({ inputs: [text], options: { wait_for_model: true } }),
       }
     );
 
-    if (!hfResp.ok) throw new Error('Embedding failed');
-
-    const queryVector = extractEmbedding(await hfResp.json());
-    if (!queryVector) throw new Error('Invalid embedding');
-
-    const pc = new Pinecone({ apiKey: PINECONE_API_KEY });
-    const index = pc.index(PINECONE_INDEX_NAME);
-
-    const queryResponse = await index.query({
-      vector: queryVector,
-      topK: 6,
-      includeMetadata: true,
-      filter: { agent: { $eq: agentType } },
-    });
-
-    const matches = Array.isArray(queryResponse?.matches)
-      ? queryResponse.matches
-      : [];
-
-    if (matches.length === 0) {
-      return NextResponse.json({
-        response: NO_ANSWER_FALLBACK,
-        chartData: null,
-        sources: [],
-      });
-    }
-
-    const context = matches
-      .slice(0, 5)
-      .map(m => m.metadata?.text)
-      .filter(Boolean)
-      .join('\n');
-
-    const chartInstruction = `
-If the user asks for a visualization, respond ONLY with JSON.
-
-{
-  "type": "chart",
-  "chartType": "pie|bar|line|doughnut",
-  "title": "Chart title",
-  "explanation": "Brief explanation",
-  "data": { "labels": [...], "datasets": [...] }
+    if (!response.ok) throw new Error(`HF API Error: ${response.statusText}`);
+    const result = await response.json();
+    // Handle HuggingFace API response variations (nested arrays vs flat)
+    return Array.isArray(result) && Array.isArray(result[0]) ? result[0] : result;
+  } catch (error) {
+    console.error("Embedding generation failed:", error);
+    return [];
+  }
 }
-`;
 
-    let systemPrompt = '';
+// --- MAIN API ROUTE ---
+export async function POST(req: Request) {
+  try {
+    const { messages, agentType = 'customer' } = await req.json();
+    const currentDate = new Date().toISOString().split('T')[0];
 
-    if (isTicketQuery) {
-      systemPrompt = `
-You are a Rancho Cordova assistant.
-This question is about a specific service ticket.
-Answer using the provided context and give the status or resolution clearly.
-Do not mention unrelated records.
+    // --- SYSTEM PROMPT ---
+    const systemPrompt = `
+      You are the AI Assistant for the City of Rancho Cordova and SMUD.
+      Current Date: ${currentDate}
 
-Context:
-${context}
-`;
-    } else if (isAggregateQuery || isVisualizationQuery) {
-      systemPrompt = `
-You are a Rancho Cordova assistant.
-Summarize the information by ISSUE CATEGORY only
-(for example: streetlight outage, billing question, power outage).
-Do NOT mention ticket numbers, customer identifiers, or individual records.
-If a chart is requested, group data by category.
+      **YOUR GOAL**:
+      Answer the user's question using the provided tools. 
+      
+      **STRICT FALLBACK RULE**:
+      If the user asks a question that is NOT related to Rancho Cordova, City Services, SMUD, Energy, or the provided data, OR if your tools return no relevant information, you MUST respond EXACTLY with:
+      "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope."
 
-Context:
-${context}
+      **TOOL USAGE GUIDELINES**:
+      
+      1. USE 'query_database' (SQL) for:
+         - **Diagnostic**: Specific lookups (e.g., "status of ticket CL0019", "usage for account 1001").
+         - **Prescriptive/Predictive**: Trends, aggregations (e.g., "average usage", "most common complaints").
+         - **Visualization**: ANY request for a chart, graph, plot, or trend.
+         
+         *Database Schema*:
+         - "tickets": columns(call_id, customer_id, created_at, category, agent, resolution)
+         - "energy_usage": columns(customer_id, account_type, month_date, consumption_kwh)
+         - "meter_readings": columns(account_id, reading_time, kwh) (Limit to 100 rows unless aggregating)
 
-${isVisualizationQuery ? chartInstruction : ''}
-`;
-    } else {
-      systemPrompt = `
-You are a Rancho Cordova assistant.
-Answer using the provided context.
-If the answer is not present, say you cannot answer.
+      2. USE 'search_documents' (Vector Search) for:
+         - **Descriptive**: General info (e.g., "Who is the manager?", "Where is the office?", "Rebate details").
+         - **Prescriptive**: Processes (e.g., "How to start service?", "When to run dishwasher").
+         
+      **CHART GENERATION RULES**:
+      - Triggers: If the user asks to "show", "plot", "graph", "visualize", "compare" (visually), or asks for a "trend".
+      - Action: Return a standard text explanation AND a JSON block in this EXACT format at the end:
+        \`\`\`json
+        {
+          "type": "chart",
+          "chartType": "line" | "bar" | "pie",
+          "title": "Descriptive Title",
+          "data": { 
+            "labels": ["Label1", "Label2"], 
+            "datasets": [{ "label": "Series Name", "data": [10, 20] }] 
+          }
+        }
+        \`\`\`
+    `;
 
-Context:
-${context}
-`;
-    }
+    // --- STREAMING LOGIC ---
+    const result = streamText({
+      model: groq('llama-3.3-70b-versatile'), // Or 'gpt-4o' if using OpenAI
+      system: systemPrompt,
+      messages: convertToCoreMessages(messages),
+      maxSteps: 4, // Allow AI to retry SQL if it fails initially
+      
+      tools: {
+        // --- TOOL 1: SQL DATABASE (Hard Data & Trends) ---
+        query_database: tool({
+          description: 'Executes a SQL query for specific records, counts, trends, or energy stats.',
+          parameters: z.object({
+            query: z.string().describe(`
+              Valid PostgreSQL query. 
+              - For tickets: SELECT * FROM tickets WHERE call_id = '...'
+              - For trends: GROUP BY date_trunc('day', created_at)
+              - For energy: SELECT SUM(consumption_kwh) FROM energy_usage...
+            `),
+            explanation: z.string().describe('Briefly explain what you are checking.'),
+          }),
+          execute: async ({ query }) => {
+            console.log(`[SQL Tool] ${query}`);
+            
+            // Execute using the RPC function we created in Supabase
+            const { data, error } = await supabase.rpc('execute_sql', { query_text: query });
+            
+            if (error) return `SQL Error: ${error.message}. Try correcting the table/column names.`;
+            if (!data || data.length === 0) return "No records found in the database.";
+            
+            return JSON.stringify(data);
+          },
+        }),
 
-    const groq = new Groq({ apiKey: GROQ_API_KEY });
+        // --- TOOL 2: KNOWLEDGE BASE (Text & Policies) ---
+        search_documents: tool({
+          description: 'Searches for policies, office locations, managers, rebates, and general guides.',
+          parameters: z.object({
+            query: z.string().describe('The semantic search terms.'),
+          }),
+          execute: async ({ query }) => {
+            console.log(`[Vector Tool] ${query}`);
+            const vector = await generateEmbedding(query);
+            if (!vector.length) return "Error: Could not generate embedding.";
 
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      temperature: 0.2,
-      max_tokens: 1024,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: message },
-      ],
+            const searchRes = await pineconeIndex.query({
+              vector: vector,
+              topK: 5,
+              includeMetadata: true,
+              // Optional: Filter based on agent type if your metadata has 'agent' field
+              // filter: { agent: agentType === 'energy' ? 'energy' : 'customer' } 
+            });
+
+            if (!searchRes.matches.length) return "No relevant documents found.";
+
+            // Return the text chunks to the LLM
+            return searchRes.matches
+              .map(m => `[Source: ${m.metadata?.source}] ${m.metadata?.text}`)
+              .join('\n\n');
+          },
+        }),
+      },
     });
 
-    let finalText = completion.choices?.[0]?.message?.content?.trim() || '';
-    let chartData = null;
+    return result.toDataStreamResponse();
 
-    if (REFUSAL_PATTERN.test(finalText) || finalText.length === 0) {
-      finalText = NO_ANSWER_FALLBACK;
-    } else {
-      const parsedChart = extractChartJson(finalText);
-      if (parsedChart && parsedChart.data) {
-        chartData = parsedChart;
-        finalText = parsedChart.explanation || '';
-      }
-    }
-
-    return NextResponse.json({
-      response: finalText,
-      chartData,
-      sources: matches.slice(0, 3).map(m => ({
-        source: m.metadata?.source || null,
-        score: m.score ?? null,
-      })),
-    });
-
-  } catch {
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  } catch (error: any) {
+    console.error("Route Error:", error);
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
   }
 }
