@@ -6,12 +6,11 @@ import Groq from 'groq-sdk';
 // --- CONFIGURATION ---
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60; // Allow 60s for complex SQL generation
+export const maxDuration = 60; 
 
 // --- ENVIRONMENT VARIABLES ---
-// Ensure these are set in your Vercel Project Settings
 const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!; // Must be Service Role Key for RPC execution
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!; 
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY!;
 const PINECONE_INDEX_NAME = process.env.PINECONE_INDEX_NAME || 'rancho-cordova';
 const GROQ_API_KEY = process.env.GROQ_API_KEY!;
@@ -21,9 +20,6 @@ const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY!;
 const NO_ANSWER_FALLBACK =
   "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope.";
 
-// Regex to detect SQL vs Vector intent
-// "Usage", "kWh", "Trend", "Count" -> SQL
-// "How to", "Policy", "Who is" -> Vector
 const SQL_INTENT_PATTERN = /\b(count|how many|total|average|avg|trend|stats|statistics|plot|graph|chart|visualize|compare|highest|lowest|usage|kwh|consumption|breakdown|reasons)\b/i;
 const TICKET_ID_PATTERN = /\bCL0*\d+\b/i;
 
@@ -47,7 +43,6 @@ async function generateEmbedding(text: string): Promise<number[]> {
     );
     if (!response.ok) return [];
     const result = await response.json();
-    // Handle nested array response from HF API
     return Array.isArray(result) && Array.isArray(result[0]) ? result[0] : result;
   } catch (e) {
     console.error("Embedding Error:", e);
@@ -57,7 +52,6 @@ async function generateEmbedding(text: string): Promise<number[]> {
 
 // --- HELPER 2: Extract Chart JSON ---
 const extractChartJson = (text: string): any | null => {
-  // Regex to find JSON block or raw JSON structure
   const jsonMatch = text.match(/```json\n([\s\S]*?)\n```/) || text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) return null;
   try {
@@ -73,7 +67,6 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
   const currentDate = new Date().toISOString().split('T')[0];
 
   // 1. Generate SQL
-  // We explicitly list values (Residential/Commercial) to fix case-sensitivity issues
   const sqlSystemPrompt = `
     You are a PostgreSQL Expert.
     Current Date: ${currentDate}
@@ -93,7 +86,7 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
     - FOR TRENDS: Use GROUP BY date_trunc('day', created_at)
     - FOR PIE CHARTS/BREAKDOWNS: Use GROUP BY category (tickets) or account_type (energy).
     - FOR AVERAGES: Use AVG(consumption_kwh)
-    - DO NOT use a semicolon (;) at the end of the query.
+    - DO NOT use a semicolon (;) at the end.
     - Return ONLY the SQL string. No markdown, no explanations.
   `;
 
@@ -103,27 +96,25 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
       { role: 'system', content: sqlSystemPrompt },
       { role: 'user', content: message }
     ],
-    temperature: 0 // Zero temperature for precise SQL
+    temperature: 0 
   });
 
-  // Clean the SQL Output
+  // Clean the SQL
   let query = sqlCompletion.choices[0]?.message?.content || "";
-  query = query.replace(/```sql|```/gi, '').trim(); // Remove Markdown
-  query = query.replace(/;+\s*$/, ''); // Remove trailing semicolon (Fixes Supabase wrapper error)
+  query = query.replace(/```sql|```/gi, '').trim(); 
+  query = query.replace(/;+\s*$/, ''); 
 
   if (!query) throw new Error("Failed to generate SQL");
   console.log("Executing SQL:", query);
 
-  // 2. Run SQL via Supabase RPC
+  // 2. Run SQL
   const { data, error } = await supabase.rpc('execute_sql', { query_text: query });
 
-  // 3. Handle Errors
   if (error) {
-    console.error("Supabase Transport Error:", error);
+    console.error("Supabase Error:", error);
     return { response: "I encountered a technical error connecting to the database.", chartData: null };
   }
   
-  // Check for Logic Errors returned by our custom SQL function
   if (data && !Array.isArray(data) && (data as any).error) {
     console.error("SQL Logic Error:", (data as any).error);
     return { response: `I couldn't process that query. Database says: ${(data as any).error}`, chartData: null };
@@ -133,26 +124,26 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
     return { response: "I checked the database but found no records matching your criteria.", chartData: null };
   }
 
-  // 4. Summarize & Chart
+  // 3. Summarize & Chart
   const isEnergy = agentType === 'energy';
-  // Dynamic colors: Green for Energy, Blue for City
   const chartColor = isEnergy ? 'rgba(34, 197, 94, 1)' : 'rgba(59, 130, 246, 1)';
   const chartBg = isEnergy ? 'rgba(34, 197, 94, 0.5)' : 'rgba(59, 130, 246, 0.5)';
 
+  // --- UPDATED CHART PROMPT ---
   const chartPrompt = `
     You are a Data Analyst.
     User Question: "${message}"
     Data: ${JSON.stringify(data).slice(0, 4000)}
 
     Task:
-    1. Summarize the data.
+    1. Summarize the answer clearly based on the data.
     2. If the user asked for a "trend", "chart", "plot", "graph", or "breakdown", generate a JSON chart.
     
-    CRITICAL INSTRUCTION:
-    If you generate a chart, your text response must be extremely brief (1 short sentence).
-    Do NOT describe the chart in text. Let the visual do the work.
+    OUTPUT RULES:
+    - If NO chart is requested, return ONLY the text summary. Do NOT mention that a chart was not generated. Do NOT explain why.
+    - If a chart IS requested, your text response must be extremely brief (1 short sentence).
     
-    JSON Format:
+    JSON Format (Only if chart requested):
     \`\`\`json
     {
       "type": "chart",
@@ -180,7 +171,7 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
   const responseText = summaryCompletion.choices[0]?.message?.content || "";
   const chartData = extractChartJson(responseText);
   
-  // Clean text by removing the JSON block so it doesn't show up in the chat bubble
+  // Clean text by removing JSON block
   let cleanText = responseText.replace(/```json[\s\S]*```/g, '').replace(/\{[\s\S]*\}/g, '').trim();
   
   if (!cleanText && chartData) cleanText = "Here is the visualization of the data.";
@@ -190,22 +181,16 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
 
 // --- HANDLER B: SEMANTIC (Vector) ---
 async function handleSemanticQuery(message: string, agentType: string) {
-  // 1. Generate Embedding
   const vector = await generateEmbedding(message);
   if (!vector.length) return { response: "I'm having trouble accessing my knowledge base.", chartData: null };
 
-  // 2. Pinecone Search
   const pc = new Pinecone({ apiKey: PINECONE_API_KEY });
   const index = pc.index(PINECONE_INDEX_NAME);
   
-  // Optional: Filter by agent type if your vectors have metadata
-  // const filter = agentType === 'energy' ? { agent: { $in: ['energy', 'general'] } } : undefined;
-
   const searchRes = await index.query({
     vector,
     topK: 5,
     includeMetadata: true
-    // filter
   });
 
   const matches = searchRes.matches || [];
@@ -213,7 +198,6 @@ async function handleSemanticQuery(message: string, agentType: string) {
 
   const context = matches.map(m => m.metadata?.text).join('\n---\n');
 
-  // 3. Generate Answer
   const systemPrompt = `
     You are the ${agentType === 'energy' ? 'Energy Advisor' : 'City Services Agent'}.
     Answer based strictly on the context below.
@@ -245,7 +229,6 @@ export async function POST(req: NextRequest) {
 
     if (!message) return NextResponse.json({ error: 'Message required' }, { status: 400 });
 
-    // Determine Intent
     const isTicketLookup = TICKET_ID_PATTERN.test(message);
     const isAnalytics = SQL_INTENT_PATTERN.test(message);
 
