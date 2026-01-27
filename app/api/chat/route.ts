@@ -20,8 +20,14 @@ const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY!;
 const NO_ANSWER_FALLBACK =
   "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope.";
 
-
+// 1. SQL INTENT: Words that strongly suggest Database/Analytics
 const SQL_INTENT_PATTERN = /\b(count|how many|total|average|avg|sum|trend|stats|statistics|plot|graph|chart|visualize|compare|highest|lowest|usage|kwh|consumption|breakdown|reasons)\b/i;
+
+// 2. VECTOR OVERRIDE: Words that imply Policy/Advice/Text, even if they contain "highest" or "usage"
+// Example: "Highest rebate" -> Vector (Rebate text), NOT SQL.
+// Example: "How to reduce usage" -> Vector (Advice), NOT SQL.
+const VECTOR_OVERRIDE_PATTERN = /\b(rebate|incentive|program|dishwasher|washing|dryer|appliance|how to|ways to|reduce|save|contact|manager|location|address|phone|email|process|steps|apply|permit)\b/i;
+
 const TICKET_ID_PATTERN = /\bCL0*\d+\b/i;
 
 // --- INITIALIZE CLIENTS ---
@@ -68,23 +74,21 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
   const currentDate = new Date().toISOString().split('T')[0];
 
   // 1. Generate SQL
-  // Defines strict schema matching the Supabase upload script
   const sqlSystemPrompt = `
     You are a PostgreSQL Expert.
-    Current Date: ${currentDate} (Note: Data in DB is mostly from 2024-2025)
+    Current Date: ${currentDate} (Data is mostly 2024-2025)
     
     Table Schema:
     - tickets (call_id, customer_id, created_at, category, agent, resolution)
       * category examples: 'Billing question', 'Outage report', 'High usage inquiry'
-      * resolution examples: 'Explained...', 'Logged outage...'
     
     - energy_usage (customer_id, account_type, month_date, consumption_kwh)
-      * account_type values: 'Residential', 'Commercial' (Case Sensitive!)
-      * month_date format: YYYY-MM-DD (e.g., '2024-05-01')
-      * To filter by Month Name (e.g. 'May'), use: WHERE TO_CHAR(month_date, 'Month') LIKE 'May%'
+      * account_type: 'Residential', 'Commercial' (Case Sensitive!)
+      * month_date: YYYY-MM-DD (e.g., '2024-05-01')
+      * To filter by 'May', use: TO_CHAR(month_date, 'Month') LIKE '%May%'
     
     - meter_readings (account_id, reading_time, kwh)
-      * High frequency data (hourly).
+      * High frequency data. Limit to 100 rows if selecting raw data.
     
     Goal: Write a SQL query for the user's question.
     Rules:
@@ -107,7 +111,7 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
   // Clean the SQL
   let query = sqlCompletion.choices[0]?.message?.content || "";
   query = query.replace(/```sql|```/gi, '').trim(); 
-  query = query.replace(/;+\s*$/, ''); // Remove trailing semicolon
+  query = query.replace(/;+\s*$/, ''); 
 
   if (!query) throw new Error("Failed to generate SQL");
   console.log("Executing SQL:", query);
@@ -131,7 +135,7 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
 
   // 3. Summarize & Chart
   const isEnergy = agentType === 'energy';
-  const chartColor = isEnergy ? 'rgba(34, 197, 94, 1)' : 'rgba(59, 130, 246, 1)'; // Green vs Blue
+  const chartColor = isEnergy ? 'rgba(34, 197, 94, 1)' : 'rgba(59, 130, 246, 1)';
   const chartBg = isEnergy ? 'rgba(34, 197, 94, 0.5)' : 'rgba(59, 130, 246, 0.5)';
 
   const chartPrompt = `
@@ -145,7 +149,7 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
     
     OUTPUT RULES:
     - If NO chart is requested, return ONLY the text summary.
-    - If a chart IS requested, your text response must be extremely brief (1 short sentence).
+    - If a chart IS requested, your text response must be extremely brief.
     
     JSON Format:
     \`\`\`json
@@ -175,9 +179,7 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
   const responseText = summaryCompletion.choices[0]?.message?.content || "";
   const chartData = extractChartJson(responseText);
   
-  // Clean text
   let cleanText = responseText.replace(/```json[\s\S]*```/g, '').replace(/\{[\s\S]*\}/g, '').trim();
-  
   if (!cleanText && chartData) cleanText = "Here is the visualization of the data.";
 
   return { response: cleanText, chartData, sources: [{ source: "Live Database", score: 1 }] };
@@ -185,27 +187,36 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
 
 // --- HANDLER B: SEMANTIC (Vector) ---
 async function handleSemanticQuery(message: string, agentType: string) {
-  // 1. Generate Embedding
-  const vector = await generateEmbedding(message);
+  
+  // 1. QUERY EXPANSION (The "Dishwasher" & "Process" Fix)
+  // This helps Vector Search find relevant rows even if vocabulary differs.
+  let searchTerms = message;
+  if (agentType === 'energy') {
+    searchTerms += " SMUD Time-of-Day rates peak off-peak electricity cost rebates incentive";
+  } else if (agentType === 'customer') {
+    searchTerms += " city department contact phone location service request process";
+  }
+
+  // 2. Generate Embedding
+  const vector = await generateEmbedding(searchTerms);
   if (!vector.length) return { response: "I'm having trouble accessing my knowledge base.", chartData: null };
 
-  // 2. Pinecone Search
+  // 3. Pinecone Search
   const pc = new Pinecone({ apiKey: PINECONE_API_KEY });
   const index = pc.index(PINECONE_INDEX_NAME);
   
   const searchRes = await index.query({
     vector,
-    topK: 10, // Increased to 10 to ensure we catch all relevant rows (rates, rebates, etc.)
+    topK: 15, // High topK to ensure we capture spread-out CSV rows (e.g. all rate seasons)
     includeMetadata: true
   });
 
   const matches = searchRes.matches || [];
   if (matches.length === 0) return { response: NO_ANSWER_FALLBACK, chartData: null };
 
-  // Format context for LLM
   const context = matches.map(m => m.metadata?.text).join('\n---\n');
 
-  // 3. Generate Answer
+  // 4. Generate Answer
   const systemPrompt = `
     You are the ${agentType === 'energy' ? 'Energy Advisor' : 'City Services Agent'}.
     
@@ -219,8 +230,8 @@ async function handleSemanticQuery(message: string, agentType: string) {
     1. **Inference Permitted:** If the user asks about "best times" for appliances (washer, dryer, dishwasher), you MUST use "Time-of-Day" rate data. 
        - "Off-Peak" (Low Rate) = Best Time.
        - "Peak" (High Rate) = Worst Time.
-    2. **Rebate Comparisons:** If asked for "highest incentive", compare the values found in the context.
-    3. **Missing Info:** If the context contains ABSOLUTELY NO relevant info (no rates, no city info), say: "${NO_ANSWER_FALLBACK}"
+    2. **Rebate Comparisons:** If asked for "highest incentive", compare the values found in the context (e.g. from SMUD_Rebates).
+    3. **Missing Info:** If the context contains ABSOLUTELY NO relevant info, say: "${NO_ANSWER_FALLBACK}"
     4. **Tone:** Be helpful, professional, and concise.
   `;
 
@@ -228,7 +239,7 @@ async function handleSemanticQuery(message: string, agentType: string) {
     model: 'llama-3.3-70b-versatile',
     messages: [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: message }
+      { role: 'user', content: message } // Pass original message to LLM
     ]
   });
 
@@ -248,14 +259,13 @@ export async function POST(req: NextRequest) {
 
     const isTicketLookup = TICKET_ID_PATTERN.test(message);
     const isAnalytics = SQL_INTENT_PATTERN.test(message);
+    const isVectorOverride = VECTOR_OVERRIDE_PATTERN.test(message);
 
     let result;
-    // Route to SQL if it's a specific ticket OR a stats question (count, total, usage)
-    if (isTicketLookup || isAnalytics) {
+    if (isTicketLookup || (isAnalytics && !isVectorOverride)) {
       console.log(`[Router] SQL Path for: "${message}"`);
       result = await handleAnalyticsQuery(message, agentType);
     } else {
-      // Default to Vector Search for "How to", "Where is", "Who is"
       console.log(`[Router] Vector Path for: "${message}"`);
       result = await handleSemanticQuery(message, agentType);
     }
