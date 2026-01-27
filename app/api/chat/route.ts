@@ -11,6 +11,10 @@ const PINECONE_INDEX_NAME = process.env.PINECONE_INDEX_NAME || 'rancho-cordova';
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
 
+// Exact fallback (unchanged)
+const NO_ANSWER_FALLBACK =
+  "I am sorry, I have access to only publicly available City of Rancho Cordova and SMUD data, and I won't be able to answer any questions outside my scope.";
+
 export async function POST(req: NextRequest) {
   try {
     if (!PINECONE_API_KEY || !GROQ_API_KEY || !HUGGINGFACE_API_KEY) {
@@ -22,147 +26,168 @@ export async function POST(req: NextRequest) {
     if (!message || typeof message !== 'string') {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
-
-    // 1. GENERATE EMBEDDING
-    const modelUrl = "https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction";
-    let queryVector: number[] = [];
-    
-    try {
-      const response = await fetch(modelUrl, {
-        method: "POST",
+    const hfResponse = await fetch(
+      'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction',
+      {
+        method: 'POST',
         headers: {
-          "Authorization": `Bearer ${HUGGINGFACE_API_KEY}`,
-          "Content-Type": "application/json",
+          Authorization: `Bearer ${HUGGINGFACE_API_KEY}`,
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           inputs: [message],
-          options: { wait_for_model: false, use_cache: true }
+          options: { wait_for_model: false },
         }),
-      });
-
-      if (response.status === 503) {
-        return NextResponse.json({ error: 'Model loading', estimated_time: 20 }, { status: 503 });
       }
+    );
 
-      if (!response.ok) throw new Error(`HF API Error: ${response.status}`);
-
-      const result = await response.json();
-      if (Array.isArray(result)) {
-         queryVector = (Array.isArray(result[0]) ? result[0] : result) as number[];
-      } else {
-        throw new Error("Invalid embedding format");
-      }
-    } catch (error: any) {
-      console.error('Embedding failed:', error);
-      return NextResponse.json({ error: "Search system temporary unavailable." }, { status: 500 });
+    if (hfResponse.status === 503) {
+      return NextResponse.json({ error: 'Model loading', estimated_time: 20 }, { status: 503 });
     }
 
-    // 2. QUERY PINECONE
+    if (!hfResponse.ok) {
+      throw new Error('Embedding generation failed');
+    }
+
+    const embeddingResult = await hfResponse.json();
+    const queryVector: number[] = Array.isArray(embeddingResult[0])
+      ? embeddingResult[0]
+      : embeddingResult;
+
+    if (!Array.isArray(queryVector) || queryVector.length === 0) {
+      throw new Error('Invalid embedding format');
+    }
     const pc = new Pinecone({ apiKey: PINECONE_API_KEY });
     const index = pc.index(PINECONE_INDEX_NAME);
 
     const queryResponse = await index.query({
       vector: queryVector,
-      topK: 5,
+      topK: 6,
       includeMetadata: true,
-      filter: { agent: { $eq: agentType } }
+      filter: { agent: { $eq: agentType } },
     });
 
-    const context = queryResponse.matches
-      .filter(match => (match.score || 0) > 0.4)
-      .map(doc => doc.metadata?.text).join('\n\n');
+    const matches = Array.isArray(queryResponse?.matches)
+      ? queryResponse.matches
+      : [];
 
-    // 3. SYSTEM PROMPT (UPDATED & MORE ROBUST)
-    // Added: "break up", "distribution", "compare", "pie", "bar"
-    const isChartRequest = /\b(forecast|trend|breakdown|break\s*up|distribution|volume|graph|chart|plot|compare|comparison|pie|bar)\b/i.test(message);
+    // MVP fallback rule: NO documents → fallback
+    if (matches.length === 0) {
+      return NextResponse.json({
+        response: NO_ANSWER_FALLBACK,
+        chartData: null,
+        sources: [],
+      });
+    }
+    const isChartRequest =
+      /\b(chart|graph|plot|compare|trend|distribution|pie|bar)\b/i.test(message);
+
+    const isNumericQuery =
+      /\b(kwh|usage|average|total|month|year|rate|consumption)\b/i.test(message);
+
+    const isDirectoryQuery =
+      /\b(phone|email|contact|department|office|address)\b/i.test(message);
+
+    let filteredMatches = matches;
+
+    if (isNumericQuery || isChartRequest) {
+      filteredMatches = matches.filter(m =>
+        typeof m.metadata?.text === 'string' &&
+        /\d/.test(m.metadata.text)
+      );
+    }
+
+    if (isDirectoryQuery) {
+      filteredMatches = matches.filter(m =>
+        typeof m.metadata?.text === 'string' &&
+        /@|\d{3}[-.\s]?\d{3}|suite|ave|street|st\b/i.test(m.metadata.text)
+      );
+    }
+
+    const usableMatches =
+      filteredMatches.length > 0 ? filteredMatches : matches;
+
+    const context = usableMatches
+      .slice(0, 4)
+      .map(m => m.metadata?.text)
+      .filter(Boolean)
+      .join('\n');
 
     const chartInstruction = `
-    The user's query matched a visualization keyword.
-    
-    IF the answer involves numerical data, trends, or comparisons:
-    - You MUST respond with ONLY the following JSON format.
-    - Do not include any conversational text outside the JSON.
-    
-    IF the answer is a text list, location info, or qualitative description (e.g. "breakdown of departments"):
-    - Ignore the JSON format.
-    - Respond with a normal text answer using Markdown.
+IF the answer requires numerical data:
+Respond ONLY with valid JSON.
 
-    JSON Format (for numerical data only):
-    {
-      "type": "chart",
-      "chartType": "line", 
-      "title": "Chart Title",
-      "explanation": "Brief explanation.",
-      "data": { "labels": [...], "datasets": [...] }
-    }
-    Valid chartTypes: "line", "bar", "pie", "doughnut".
-    `;
+{
+  "type": "chart",
+  "chartType": "bar",
+  "title": "Chart Title",
+  "explanation": "Brief explanation",
+  "data": { "labels": [...], "datasets": [...] }
+}
+`;
 
     const systemPrompt = isChartRequest
-      ? `You are a helper for Rancho Cordova. Context: ${context}. ${chartInstruction}`
-      : `You are a knowledgeable assistant for Rancho Cordova. Context: ${context}.
-         
-         CRITICAL FORMATTING RULES:
-         1. STRUCTURE: Use Markdown.
-         2. LISTS: Always insert a BLANK LINE before starting a list.
-         3. SPACING: Always insert a BLANK LINE between bullet points.
-         4. EMPHASIS: Use **bold** for phone numbers, emails, addresses, and key terms.
-         5. TONE: Professional, helpful, and direct.
-         
-         Do NOT generate JSON unless asked for a chart.`;
+      ? `You are a Rancho Cordova assistant.
+Use ONLY the provided context. The context may include tables.
 
+Context:
+${context}
+
+${chartInstruction}`
+      : `You are a Rancho Cordova assistant.
+Use ONLY the provided context. The context may include tables or directory records.
+If the answer is not in the context, say you cannot answer.
+
+Context:
+${context}`;
     const groq = new Groq({ apiKey: GROQ_API_KEY });
+
     const completion = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      temperature: 0.2,
+      max_tokens: 1024,
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: message }
+        { role: 'user', content: message },
       ],
-      model: 'llama-3.3-70b-versatile',
-      temperature: 0.3,
-      max_tokens: 1024,
     });
 
-    const rawContent = completion.choices[0]?.message?.content || 'I could not generate a response.';
-
-// 4. PARSE & CLEAN
+    const rawContent =
+      completion.choices?.[0]?.message?.content ||
+      NO_ANSWER_FALLBACK;
     let chartData = null;
     let finalText = rawContent;
 
-    // Check if the response contains the specific chart indicator
     if (rawContent.includes('"type": "chart"') || rawContent.includes('"type":"chart"')) {
       try {
-        // 1. Remove Markdown code blocks first
-        let cleanContent = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();     
-        // 2. ROBUST EXTRACTION: Find the FIRST '{' and the LAST '}'
-        
-        const firstBrace = cleanContent.indexOf('{');
-        const lastBrace = cleanContent.lastIndexOf('}');
-
-        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-           // Extract everything between the outer braces
-           const jsonString = cleanContent.substring(firstBrace, lastBrace + 1);
-           const parsed = JSON.parse(jsonString);
-            
-           // 3. Validation
-           if (parsed.data && parsed.chartType) {
-             chartData = parsed;
-             
-             finalText = parsed.explanation || "Here is the visualization you requested.";
-           }
+        const clean = rawContent.replace(/```json|```/g, '').trim();
+        const start = clean.indexOf('{');
+        const end = clean.lastIndexOf('}');
+        if (start !== -1 && end !== -1) {
+          const parsed = JSON.parse(clean.slice(start, end + 1));
+          if (parsed?.type === 'chart') {
+            chartData = parsed;
+            finalText = parsed.explanation || '';
+          }
         }
-      } catch (e) {
-        console.warn('Chart Parse Error:', e);
-       
+      } catch {
+        // ignore parsing errors (MVP)
       }
     }
     return NextResponse.json({
       response: finalText,
-      chartData: chartData,
-      sources: queryResponse.matches.slice(0, 3).map(d => ({ source: d.metadata?.source, score: d.score }))
+      chartData,
+      sources: usableMatches.slice(0, 3).map(m => ({
+        source: m.metadata?.source,
+        score: m.score,
+      })),
     });
 
-  } catch (error: any) {
-    console.error('API Route Error:', error);
-    return NextResponse.json({ error: "An internal system error occurred." }, { status: 500 });
+  } catch (error) {
+    console.error('API error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }
