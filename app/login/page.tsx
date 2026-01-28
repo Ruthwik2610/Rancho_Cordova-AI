@@ -137,7 +137,7 @@ export default function LoginPage() {
               LLM at Scale.AI
             </p>
             <p className="text-sm text-black-400 font-semibold text-[13px]">
-              [jothi@llmatscale.ai](mailto:jothi@llmatscale.ai)
+              jothi@llmatscale.ai
             </p>
         </div> 
         </div>
