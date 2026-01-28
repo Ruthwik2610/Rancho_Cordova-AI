@@ -130,13 +130,15 @@ export default function LoginPage() {
             <p className="text-base  text-black-400 font-semibold">
               Jothi Periasamy
             </p>
-            <p className="text-sm text-black-400 font-semibold">
+            <p className="text-sm text-black-400 font-semibold text-[13px]">
               Chief Architect 
             </p>
-            <p className="text-sm text-black-400 font-semibold">
+            <p className="text-sm text-black-400 font-semibold text-[13px]">
               LLM at Scale.AI
             </p>
-          </div>
+            <p className="text-sm text-black-400 font-semibold text-[13px]">
+              [jothi@llmatscale.ai](mailto:jothi@llmatscale.ai)
+            </p>
 
         </div>
       </div>
