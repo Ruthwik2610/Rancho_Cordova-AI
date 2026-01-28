@@ -123,23 +123,34 @@ export default function LoginPage() {
           </form>
 
           {/* CONTACT BOX (Replaced Demo Credentials) */}
-          <div className="w-full mt-4 p-5 border border-slate-200 rounded-2xl bg-slate-50/80 text-center space-y-1.5">
-            <p className="text-[16px] font-bold text-slate-400 uppercase tracking-widest mb-1">
-              Contact
-            </p>
-            <p className="text-base  text-black-400 font-semibold">
-              Jothi Periasamy
-            </p>
-            <p className="text-sm text-black-400 font-semibold text-[13px]">
-              Chief Architect 
-            </p>
-            <p className="text-sm text-black-400 font-semibold text-[13px]">
-              LLM at Scale.AI
-            </p>
-            <p className="text-sm text-black-400 font-semibold text-[13px]">
-              jothi@llmatscale.ai
-            </p>
-        </div> 
+{/* CONTACT BOX */}
+<div className="w-full mt-6 p-5 border border-slate-200 rounded-2xl bg-slate-50/80 text-center space-y-2">
+  
+  {/* 1. LABEL: Keeps the section distinct from the content */}
+  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+    Contact Support
+  </p>
+
+  {/* 2. NAME: The most prominent element */}
+  <p className="text-base text-slate-800 font-bold">
+    Jothi Periasamy
+  </p>
+
+  {/* 3. TITLE & COMPANY: Grouped together for better flow */}
+  <div className="text-[13px] text-slate-500 font-medium leading-tight">
+    <p>Chief Architect</p>
+    <p className="text-slate-400">LLM at Scale.AI</p>
+  </div>
+
+  {/* 4. EMAIL: Distinct color/style because it's an interactive element */}
+  <a 
+    href="mailto:jothi@llmatscale.ai" 
+    className="inline-block pt-1 text-sm text-blue-600 hover:text-blue-700 font-semibold hover:underline transition-colors"
+  >
+    jothi@llmatscale.ai
+  </a>
+
+</div>
         </div>
       </div>
 
