@@ -46,15 +46,16 @@ export default function LoginPage() {
         ">
           
           {/* Logo */}
-          <div className="relative w-64 h-16">
-            <Image 
-              src="/static/images.png"
-              alt="Logo" 
-              fill 
-              className="object-contain object-center" 
-              priority
-            />
-          </div>
+{/* Increased height from h-10 to h-16 */}
+    <div className="relative w-64 h-16 ">
+  <Image 
+    src="/static/images.png"
+    alt="Logo" 
+    fill 
+    className="object-contain object-center" 
+    priority
+  />
+</div>
 
           {/* Title */}
           <div className="text-center space-y-2">
@@ -121,47 +122,24 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* IMPROVED CONTACT BOX */}
-          <div className="w-full mt-8 p-6 border-2 border-slate-200 rounded-2xl bg-gradient-to-br from-slate-50 to-white shadow-sm hover:shadow-md transition-all duration-300">
-            
-            {/* Decorative Top Element */}
-            <div className="flex items-center justify-center mb-5">
-              <div className="w-16 h-1 bg-slate-800 rounded-full" />
-            </div>
-            
-            {/* LABEL */}
-            <p className="text-[11px] font-bold text-black uppercase tracking-[0.15em] text-center mb-4 opacity-70">
+          {/* CONTACT BOX (Replaced Demo Credentials) */}
+          <div className="w-full mt-4 p-5 border border-slate-200 rounded-2xl bg-slate-50/80 text-center space-y-1.5">
+            <p className="text-[16px] font-bold text-slate-400 uppercase tracking-widest mb-1">
               Contact
             </p>
-
-            {/* NAME with Decorative Divider */}
-            <div className="text-center mb-4">
-              <p className="text-lg text-black font-bold tracking-tight mb-2">
-                Jothi Periasamy
-              </p>
-              <div className="w-12 h-0.5 bg-slate-300 mx-auto rounded-full" />
-            </div>
-
-            {/* TITLE & COMPANY with Better Spacing */}
-            <div className="text-[13px] text-black font-medium text-center space-y-1 mb-5">
-              <p className="leading-relaxed">Chief Architect</p>
-              <p className="leading-relaxed opacity-80">LLM at Scale.AI</p>
-            </div>
-
-            {/* EMAIL in Enhanced Button Style */}
-            <div className="pt-4 border-t border-slate-200/80">
-              <a 
-                href="mailto:jothi@llmatscale.ai" 
-                className="w-full flex items-center justify-center gap-2.5 px-4 py-3 text-sm text-black font-semibold rounded-xl bg-white border border-slate-200 hover:border-slate-300 hover:shadow-sm transition-all duration-200 group"
-              >
-                <svg className="w-4 h-4 opacity-60 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-                <span>jothi@llmatscale.ai</span>
-              </a>
-            </div>
-
-          </div>
+            <p className="text-base  text-black-400 font-semibold">
+              Jothi Periasamy
+            </p>
+            <p className="text-sm text-black-400 font-semibold text-[13px]">
+              Chief Architect 
+            </p>
+            <p className="text-sm text-black-400 font-semibold text-[13px]">
+              LLM at Scale.AI
+            </p>
+            <p className="text-sm text-black-400 font-semibold text-[13px]">
+              jothi@llmatscale.ai
+            </p>
+        </div> 
         </div>
       </div>
 
