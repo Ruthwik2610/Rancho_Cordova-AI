@@ -139,7 +139,7 @@ export default function LoginPage() {
             <p className="text-sm text-black-400 font-semibold text-[13px]">
               [jothi@llmatscale.ai](mailto:jothi@llmatscale.ai)
             </p>
-
+        </div> 
         </div>
       </div>
 
