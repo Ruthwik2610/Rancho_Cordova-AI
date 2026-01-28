@@ -126,26 +126,26 @@ export default function LoginPage() {
 {/* CONTACT BOX */}
 <div className="w-full mt-6 p-5 border border-slate-200 rounded-2xl bg-slate-50/80 text-center space-y-2">
   
-  {/* 1. LABEL: Keeps the section distinct from the content */}
-  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">
-    Contact Support
+  {/* 1. LABEL: Changed to Black + Just "CONTACT" */}
+  <p className="text-[11px] font-bold text-black uppercase tracking-widest mb-2">
+    Contact
   </p>
 
-  {/* 2. NAME: The most prominent element */}
-  <p className="text-base text-slate-800 font-bold">
+  {/* 2. NAME: Black */}
+  <p className="text-base text-black font-bold">
     Jothi Periasamy
   </p>
 
-  {/* 3. TITLE & COMPANY: Grouped together for better flow */}
-  <div className="text-[13px] text-slate-500 font-medium leading-tight">
+  {/* 3. TITLE & COMPANY: All Black */}
+  <div className="text-[13px] text-black font-medium leading-tight">
     <p>Chief Architect</p>
-    <p className="text-slate-400">LLM at Scale.AI</p>
+    <p>LLM at Scale.AI</p>
   </div>
 
-  {/* 4. EMAIL: Distinct color/style because it's an interactive element */}
+  {/* 4. EMAIL: Black (Removed Blue) */}
   <a 
     href="mailto:jothi@llmatscale.ai" 
-    className="inline-block pt-1 text-sm text-blue-600 hover:text-blue-700 font-semibold hover:underline transition-colors"
+    className="inline-block pt-1 text-sm text-black font-semibold hover:underline transition-all"
   >
     jothi@llmatscale.ai
   </a>
