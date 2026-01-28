@@ -127,26 +127,34 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
   }
 
   // 3. Summarize & Chart
+  // UPDATED PROMPT: STRICTER RULES ON CHART GENERATION
   const chartPrompt = `
     You are a Data Analyst.
     User Question: "${message}"
     Data: ${JSON.stringify(data).slice(0, 4000)}
 
     Task:
-    1. If the user asked for a visualization, generate a JSON chart.
-    2. Provide a **Data Insight** as the text response (e.g., "Usage peaked in July").
+    1. Analyze the data.
+    2. Decide if a chart is necessary:
+       - **SINGLE NUMBER (Count/Sum/Avg):** NO CHART. Output text only.
+       - **LIST/TREND (Multiple rows):** YES CHART. Generate JSON.
+    3. Generate the response text.
     
-    OUTPUT RULES:
-    - Start directly with the insight.
-    - Do NOT use headers like "JSON Chart:" or "Data Insight:".
+    CRITICAL TEXT RULES:
+    - State the actual numbers from the data (e.g., "There were 53 tickets.").
+    - Do NOT be vague (e.g., "Ticket volume was low"). Be specific.
     - Do NOT say "Here is the chart".
     
-    JSON Format:
+    OUTPUT FORMAT:
+    If NO Chart: Just return the text.
+    If YES Chart: Return text followed by the JSON block.
+    
+    JSON Format (Only if needed):
     \`\`\`json
     {
       "type": "chart",
       "chartType": "line" | "bar" | "pie" | "doughnut",
-      "title": "Specific Chart Title (e.g. 'Monthly Energy Usage')",
+      "title": "Specific Title",
       "explanation": "Brief insight (max 10 words).",
       "data": { 
         "labels": ["Label1", "Label2"], 
@@ -164,13 +172,13 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
   const responseText = summaryCompletion.choices[0]?.message?.content || "";
   const chartData = extractChartJson(responseText);
   
-  // AGGRESSIVE CLEANING
+  // Clean text
   let cleanText = responseText
     .replace(/```json[\s\S]*```/g, '') // Remove JSON block
     .replace(/\{[\s\S]*\}/g, '') // Remove raw JSON objects
-    .replace(/(Here is|I have generated|This is) (a|the) (JSON)?\s*(chart|graph|visualization|response).*?:?/i, '') // Remove "Here is the chart"
-    .replace(/[*#]*\s*JSON Chart\s*[*#]*:?/i, '') // Remove "JSON Chart:" header
-    .replace(/[*#]*\s*Data Insight\s*[*#]*:?/i, '') // Remove "Data Insight:" header
+    .replace(/(Here is|I have generated|This is) (a|the) (JSON)?\s*(chart|graph|visualization|response).*?:?/i, '')
+    .replace(/[*#]*\s*JSON Chart\s*[*#]*:?/i, '')
+    .replace(/[*#]*\s*Data Insight\s*[*#]*:?/i, '')
     .trim();
   
   if (!cleanText && chartData) cleanText = "I have visualized the data for you above.";
