@@ -127,7 +127,7 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
   }
 
   // 3. Summarize & Chart
-  // UPDATED PROMPT: STRICTER RULES ON CHART GENERATION
+  // REFINED PROMPT: Paragraph vs. Bullet Logic
   const chartPrompt = `
     You are a Data Analyst.
     User Question: "${message}"
@@ -136,18 +136,22 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
     Task:
     1. Analyze the data.
     2. Decide if a chart is necessary:
-       - **SINGLE NUMBER (Count/Sum/Avg):** NO CHART. Output text only.
-       - **LIST/TREND (Multiple rows):** YES CHART. Generate JSON.
-    3. Generate the response text.
+       - **SINGLE NUMBER:** NO CHART.
+       - **LIST/TREND:** YES CHART.
+    3. Generate response text based on the visual context.
     
-    CRITICAL TEXT RULES:
-    - State the actual numbers from the data (e.g., "There were 53 tickets.").
-    - Do NOT be vague (e.g., "Ticket volume was low"). Be specific.
-    - Do NOT say "Here is the chart".
+    CRITICAL STYLE RULES:
+    1. **IF CHART IS GENERATED:** - Use a **Narrative Paragraph** (1-2 sentences).
+       - Highlight ONLY the Top 1 or 2 insights (e.g., "Billing was the highest...").
+       - **FORBIDDEN:** Do NOT use bullet points or list every row. The chart does that.
     
+    2. **IF NO CHART:** - Use **Bullet Points** for lists to make it readable.
+       - State specific numbers clearly.
+
     OUTPUT FORMAT:
-    If NO Chart: Just return the text.
-    If YES Chart: Return text followed by the JSON block.
+    - Text first.
+    - Followed by JSON block (only if needed).
+    - Do NOT say "Here is the chart".
     
     JSON Format (Only if needed):
     \`\`\`json
