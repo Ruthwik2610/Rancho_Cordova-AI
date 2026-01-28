@@ -127,7 +127,7 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
   }
 
   // 3. Summarize & Chart
-  // REFINED PROMPT: Paragraph vs. Bullet Logic
+  // REFINED PROMPT: NATURAL EXPLANATION vs GRAPH
   const chartPrompt = `
     You are a Data Analyst.
     User Question: "${message}"
@@ -135,23 +135,26 @@ async function handleAnalyticsQuery(message: string, agentType: string) {
 
     Task:
     1. Analyze the data.
-    2. Decide if a chart is necessary:
-       - **SINGLE NUMBER:** NO CHART.
-       - **LIST/TREND:** YES CHART.
-    3. Generate response text based on the visual context.
+    2. Decide if a chart is necessary (Trends/Lists = YES, Single Stats = NO).
+    3. Generate the response text.
     
-    CRITICAL STYLE RULES:
-    1. **IF CHART IS GENERATED:** - Use a **Narrative Paragraph** (1-2 sentences).
-       - Highlight ONLY the Top 1 or 2 insights (e.g., "Billing was the highest...").
-       - **FORBIDDEN:** Do NOT use bullet points or list every row. The chart does that.
+    CRITICAL RESPONSE RULES:
+    1. **IF CHART IS GENERATED:**
+       - Provide a concise narrative summary (1-2 sentences).
+       - Focus on the main insight (e.g., "Billing was the top category...").
+       - Do NOT list all data points textually.
     
-    2. **IF NO CHART:** - Use **Bullet Points** for lists to make it readable.
-       - State specific numbers clearly.
+    2. **IF NO CHART (Single Number/Stat):**
+       - Provide a **natural, direct explanation**.
+       - Example: "The total energy consumption was 120,760 kWh."
+       - You MAY add brief context if useful, but keep it short.
+       - **FORBIDDEN:** Do NOT say "No chart is needed," "I am not generating a chart," or explain *why*. Just give the answer.
+       - **FORBIDDEN:** Do NOT say "Here is the breakdown" if you are just giving a number.
 
     OUTPUT FORMAT:
-    - Text first.
-    - Followed by JSON block (only if needed).
-    - Do NOT say "Here is the chart".
+    - Text response first.
+    - JSON block last (only if chart is needed).
+    - No "JSON Chart:" headers.
     
     JSON Format (Only if needed):
     \`\`\`json
